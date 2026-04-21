@@ -1,14 +1,11 @@
-node_modules/
-.expo/
-dist/
-npm-debug.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-*.orig.*
-web-build/
+# Rust build artifacts
+/target/
+
+# Environment variables (contains credentials)
 .env
-android/
-ios/
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
