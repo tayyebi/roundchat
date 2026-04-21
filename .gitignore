@@ -1,0 +1,11 @@
+# Rust build artifacts
+/target/
+
+# Environment variables (contains credentials)
+.env
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp

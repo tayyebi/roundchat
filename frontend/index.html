@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RoundChat</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════
+     LOGIN VIEW
+═══════════════════════════════════════════════════ -->
+<div id="view-login" class="view active">
+  <div class="login-card">
+    <h1 class="brand">RoundChat</h1>
+    <p class="brand-sub">Chat powered by email</p>
+
+    <label class="field-label" for="login-email">Email address</label>
+    <input id="login-email" type="email" class="field" placeholder="you@example.com"
+           autocomplete="email" autocapitalize="none" spellcheck="false" />
+
+    <label class="field-label" for="login-password">Password</label>
+    <input id="login-password" type="password" class="field" placeholder="••••••••"
+           autocomplete="current-password" />
+
+    <button id="login-btn" class="btn btn-primary" type="button">Sign in</button>
+    <p id="login-error" class="error-msg hidden"></p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     MAIN VIEW (tabs + panes)
+═══════════════════════════════════════════════════ -->
+<div id="view-main" class="view">
+
+  <!-- Tab bar -->
+  <nav class="tab-bar">
+    <button class="tab active" data-pane="pane-chats">
+      <span class="tab-icon">💬</span>
+      <span class="tab-label">Chats</span>
+    </button>
+    <button class="tab" data-pane="pane-contacts">
+      <span class="tab-icon">👤</span>
+      <span class="tab-label">Contacts</span>
+    </button>
+    <button class="tab" data-pane="pane-files">
+      <span class="tab-icon">📁</span>
+      <span class="tab-label">Files</span>
+    </button>
+    <button id="btn-signout" class="tab tab-signout">
+      <span class="tab-icon">↩</span>
+      <span class="tab-label">Sign out</span>
+    </button>
+  </nav>
+
+  <!-- Pane: Chats -->
+  <div id="pane-chats" class="pane active">
+    <div class="pane-header">
+      <h2>Chats</h2>
+      <button id="btn-refresh" class="icon-btn" title="Refresh">⟳</button>
+    </div>
+    <div id="conversations-list" class="scroll-list">
+      <div class="placeholder">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Pane: Contacts -->
+  <div id="pane-contacts" class="pane">
+    <div class="pane-header">
+      <h2>Contacts</h2>
+      <button id="btn-refresh-contacts" class="icon-btn" title="Refresh">⟳</button>
+    </div>
+    <div id="contacts-list" class="scroll-list">
+      <div class="placeholder">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Pane: Files -->
+  <div id="pane-files" class="pane">
+    <div class="pane-header">
+      <h2>Files</h2>
+      <button id="btn-refresh-files" class="icon-btn" title="Refresh">⟳</button>
+    </div>
+    <button id="btn-upload" class="btn btn-outline upload-btn">Upload file</button>
+    <input id="file-input" type="file" class="hidden" />
+    <div id="files-list" class="scroll-list">
+      <div class="placeholder">Loading…</div>
+    </div>
+  </div>
+
+</div><!-- /view-main -->
+
+<!-- ═══════════════════════════════════════════════════
+     CHAT DETAIL OVERLAY
+═══════════════════════════════════════════════════ -->
+<div id="chat-overlay" class="overlay hidden">
+  <div class="chat-header">
+    <button id="btn-back" class="icon-btn back-btn">←</button>
+    <span id="chat-title" class="chat-title-text"></span>
+  </div>
+  <div id="chat-messages" class="chat-messages"></div>
+  <form id="chat-form" class="chat-input-row">
+    <input id="chat-input" type="text" class="chat-field"
+           placeholder="Message…" autocomplete="off" />
+    <button type="submit" class="btn btn-send">Send</button>
+  </form>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
