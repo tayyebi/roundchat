@@ -1,46 +1,112 @@
-# roundchat
+# RoundChat
 
-Chat built on the universal language of the internet: email.
+**Your email inbox, reimagined as a modern messenger.**
 
-A desktop chat application that presents email as a modern messenger experience.
-Built entirely on standard protocols (IMAP, POP3, SMTP, CardDAV, WebDAV) with
-no proprietary backend — just a clever reinterpretation of email.
+RoundChat is a desktop chat app that works directly with your existing email account — no new account to create, no proprietary server, no data stored anywhere except your own inbox. Open it in your browser and chat the way you already do, just with a familiar messenger interface.
 
-## Stack
+---
 
-| Layer    | Technology |
-|----------|-----------|
-| Backend  | Rust (axum, tokio) |
-| Frontend | HTML5 + CSS3 + pure JS (embedded in the binary) |
-| Protocols | IMAP / POP3 for incoming, SMTP for outgoing, CardDAV contacts, WebDAV files |
+## Screenshots
 
-## Quick start
+| Sign in | Conversations | Chat |
+|---------|---------------|------|
+| ![Sign-in screen](https://placehold.co/280x480/1c1c1e/ffffff?text=Sign+In) | ![Conversation list](https://placehold.co/280x480/1c1c1e/ffffff?text=Conversations) | ![Chat bubbles](https://placehold.co/280x480/1c1c1e/ffffff?text=Chat) |
+
+| Contacts | Files |
+|----------|-------|
+| ![Contacts list](https://placehold.co/280x480/1c1c1e/ffffff?text=Contacts) | ![File manager](https://placehold.co/280x480/1c1c1e/ffffff?text=Files) |
+
+---
+
+## What you get
+
+- **💬 Conversations** — your email threads displayed as chat bubbles, grouped by contact or group
+- **✉️ Send & receive** — reply directly from the chat view; messages are real emails under the hood
+- **👤 Contacts** — browse your address book pulled from CardDAV
+- **📁 Files** — upload, download, and delete files stored on your WebDAV server
+- **🔔 Real-time updates** — new messages appear automatically without refreshing
+
+---
+
+## Getting started
+
+### 1 · Download
+
+Grab the latest pre-built binary for your platform from the
+[**Actions → Artifacts**](../../actions) tab (Linux x86-64 or Windows x86-64).
+
+### 2 · Configure
+
+Copy the example configuration file and fill in your email server details:
 
 ```sh
-# Copy and edit the config
 cp .env.example .env
-$EDITOR .env
-
-# Run (debug)
-cargo run
-
-# Or run (release — opens browser automatically)
-cargo run --release
 ```
 
-The binary starts a local HTTP server on `http://127.0.0.1:7979` (configurable
-via `ROUNDCHAT_PORT`) and opens your default browser automatically.
+Open `.env` in any text editor and set at minimum:
 
-## Configuration
+| Setting | What to put here |
+|---------|-----------------|
+| `IMAP_HOST` | Your mail server (e.g. `imap.gmail.com`) |
+| `SMTP_HOST` | Your outgoing server (e.g. `smtp.gmail.com`) |
 
-All settings are read from environment variables (see `.env.example`):
+See `.env.example` for the full list of options including POP3, CardDAV and WebDAV.
+
+### 3 · Run
+
+```sh
+./roundchat          # Linux
+roundchat.exe        # Windows
+```
+
+RoundChat opens your default browser at `http://127.0.0.1:7979` automatically.
+Sign in with your email address and password (or app-specific password).
+
+---
+
+## Privacy & security
+
+- **No cloud, no accounts** — RoundChat runs entirely on your machine and talks directly to your own mail/DAV servers.
+- **No data leaves your control** — messages are your normal emails; contacts and files live on your own server.
+- **TLS on by default** — all connections to mail and DAV servers use TLS.
+
+---
+
+<details>
+<summary>Developer notes</summary>
+
+### Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | Rust (axum, tokio) |
+| Frontend | HTML5 + CSS3 + pure JS (embedded in the binary) |
+| Protocols | IMAP / POP3, SMTP, CardDAV, WebDAV |
+
+### Build from source
+
+```sh
+# Debug run
+cargo run
+
+# Release (opens browser automatically)
+cargo run --release
+
+# Cross-compile
+cargo build --release --target x86_64-unknown-linux-gnu
+cargo build --release --target x86_64-pc-windows-msvc
+```
+
+GitHub Actions builds both targets on every push and uploads artifacts.
+
+### Configuration reference
 
 | Variable | Description | Default |
 |---|---|---|
-| `IMAP_HOST` | IMAP server hostname — set this to use IMAP (preferred) | — |
+| `IMAP_HOST` | IMAP server hostname | — |
 | `IMAP_PORT` | IMAP port | `993` |
 | `IMAP_TLS` | Enable TLS | `true` |
-| `POP3_HOST` | POP3 server — used when `IMAP_HOST` is unset | — |
+| `POP3_HOST` | POP3 server (used when `IMAP_HOST` is unset) | — |
 | `POP3_PORT` | POP3 port | `995` |
 | `POP3_TLS` | Enable TLS | `true` |
 | `POP3_POLL_INTERVAL` | Polling interval in seconds | `30` |
@@ -51,48 +117,4 @@ All settings are read from environment variables (see `.env.example`):
 | `WEBDAV_URL` | WebDAV file storage URL (`{email}` placeholder) | — |
 | `ROUNDCHAT_PORT` | Local HTTP server port | `7979` |
 
-## Building release binaries
-
-```sh
-# Linux x86-64
-cargo build --release --target x86_64-unknown-linux-gnu
-
-# Windows x86-64 (cross-compile or run on Windows)
-cargo build --release --target x86_64-pc-windows-msvc
-```
-
-GitHub Actions builds both targets automatically on every push (see
-`.github/workflows/build.yml`). Artifacts are uploaded and available for
-download from the Actions tab.
-
-## Architecture
-
-```
-src/
-├── main.rs              # Starts HTTP server, opens browser
-├── config.rs            # Environment-variable config
-├── models.rs            # Message, Conversation, Contact, RemoteFile, Session
-├── state.rs             # Shared AppState (Arc<RwLock<...>> + SSE channel)
-├── email/
-│   ├── parser.rs        # RFC 5322 → Message (mailparse)
-│   ├── conversation.rs  # Group messages into Conversation threads
-│   ├── imap.rs          # IMAP client (imap crate, spawn_blocking)
-│   ├── pop3.rs          # POP3 client (sync TCP+TLS, spawn_blocking)
-│   ├── smtp.rs          # SMTP send (lettre, async)
-│   └── mail_service.rs  # Orchestrator — auto-selects IMAP vs POP3
-├── dav/
-│   ├── carddav.rs       # CardDAV PROPFIND + vCard → Contact
-│   └── webdav.rs        # WebDAV list / upload / delete
-└── api/
-    ├── mod.rs           # Axum router + embedded static files
-    ├── auth.rs          # POST /api/login, POST /api/logout, GET /api/session
-    ├── conversations.rs # GET /api/conversations, POST /api/send
-    ├── contacts.rs      # GET /api/contacts
-    ├── files.rs         # GET/POST/DELETE /api/files
-    └── sse.rs           # GET /api/events (Server-Sent Events)
-
-frontend/
-├── index.html           # App shell (login + main views)
-├── style.css            # Messenger-style CSS3 design
-└── app.js               # All UI logic (pure JS, no frameworks)
-```
+</details>
