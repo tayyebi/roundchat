@@ -9,6 +9,7 @@ RUN apt-get update -y && \
 
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+COPY frontend ./frontend
 
 RUN cargo build --release
 
