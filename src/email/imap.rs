@@ -1,17 +1,24 @@
 /// IMAP client.
 ///
 /// Connects to an IMAP server over TLS using async-imap + tokio-native-tls.
-/// Fetches messages and marks them as read.
+/// Fetches messages, marks them as read, and drives an RFC 2177 IDLE loop
+/// so the caller is notified of new mail in real time with zero polling lag.
 
 use anyhow::{anyhow, Context, Result};
 use async_imap::Client;
+use async_imap::extensions::idle::IdleResponse;
 use futures::StreamExt;
 use std::collections::HashMap;
+use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio_native_tls::TlsStream;
 use crate::config::ImapConfig;
 use crate::email::parser::parse_raw_message;
 use crate::models::Message;
+
+/// RFC 2177 recommends clients re-issue IDLE at least every 29 minutes.
+/// We use 28 minutes to give a small margin.
+const IDLE_REFRESH_SECS: u64 = 28 * 60;
 
 type ImapSession = async_imap::Session<TlsStream<TcpStream>>;
 
@@ -130,6 +137,66 @@ pub async fn mark_read(
     Ok(())
 }
 
+/// Run an RFC 2177 IMAP IDLE loop.
+///
+/// Keeps a persistent IMAP connection open.  The server pushes an unsolicited
+/// `EXISTS` or `RECENT` response the instant new mail arrives; we translate
+/// that into a call to `on_change` so the caller can re-fetch and push an SSE
+/// event to connected browser tabs.
+///
+/// To comply with RFC 2177 we re-issue `IDLE` every 28 minutes so the server
+/// never silently drops the connection due to inactivity.
+///
+/// This function runs until the connection fails, at which point it returns
+/// the error so the caller can reconnect and restart the loop.
+pub async fn idle_loop(
+    config: &ImapConfig,
+    email: &str,
+    password: &str,
+    on_change: impl Fn(),
+) -> Result<()> {
+    let mut session = open_session(config, email, password).await?;
+    session
+        .select("INBOX")
+        .await
+        .context("IMAP SELECT INBOX failed")?;
+
+    loop {
+        // Enter IDLE: `session.idle()` consumes the session and returns a Handle.
+        let mut handle = session.idle();
+        handle.init().await.context("IMAP IDLE init failed")?;
+
+        let (wait_fut, _stop) =
+            handle.wait_with_timeout(Duration::from_secs(IDLE_REFRESH_SECS));
+
+        let response = wait_fut.await.context("IMAP IDLE wait failed")?;
+
+        // Exit IDLE and recover the session so we can use it again.
+        session = handle.done().await.context("IMAP IDLE done failed")?;
+
+        match response {
+            IdleResponse::NewData(_) => {
+                // The server reported a mailbox change (new mail, flag update,
+                // expunge, etc.).  Notify the caller.
+                tracing::debug!("IMAP IDLE: new data from server");
+                on_change();
+            }
+            IdleResponse::Timeout => {
+                // 28-minute timer fired — re-issue IDLE immediately.
+                tracing::debug!("IMAP IDLE: re-issuing IDLE (28-min refresh)");
+            }
+            IdleResponse::ManualInterrupt => {
+                // The stop token was triggered — clean shutdown requested.
+                tracing::debug!("IMAP IDLE: manual interrupt, stopping");
+                break;
+            }
+        }
+    }
+
+    session.logout().await.ok();
+    Ok(())
+}
+
 /// Decode a simple RFC 2047 encoded-word (best-effort, handles UTF-8/base64).
 fn decode_rfc2047(input: &str) -> String {
     let re = regex::Regex::new(r"=\?([^?]+)\?([BbQq])\?([^?]*)\?=").unwrap();
@@ -148,5 +215,3 @@ fn decode_rfc2047(input: &str) -> String {
     })
     .to_string()
 }
-
-

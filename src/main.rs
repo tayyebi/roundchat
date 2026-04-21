@@ -68,9 +68,101 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Spawn a background task that periodically refreshes conversations and
-/// broadcasts an SSE event to connected clients.
+/// Spawn the background mail-monitoring task.
+///
+/// Strategy depends on the configured mail protocol:
+///
+/// * **IMAP** — uses RFC 2177 IDLE for push-based notification.  The server
+///   pushes an unsolicited `EXISTS`/`RECENT` response the instant new mail
+///   arrives; we immediately re-fetch and broadcast an SSE `refresh` event.
+///   IDLE is re-issued every 28 minutes as required by the RFC.  If the IDLE
+///   connection drops, we wait 5 s and reconnect.
+///
+/// * **POP3 / unconfigured** — falls back to timed polling on the interval
+///   configured via `POP3_POLL_INTERVAL` (default 30 s).
 fn spawn_refresh_task(state: AppState) {
+    if state.config.imap.is_some() {
+        spawn_imap_idle_task(state);
+    } else {
+        spawn_polling_task(state);
+    }
+}
+
+/// IMAP IDLE background task.
+fn spawn_imap_idle_task(state: AppState) {
+    tokio::spawn(async move {
+        // Reconnect delay on error (seconds).
+        const RECONNECT_DELAY_SECS: u64 = 5;
+
+        loop {
+            // Wait until a user is logged in before starting IDLE.
+            let session = loop {
+                let s = {
+                    let inner = state.inner.read().await;
+                    inner.session.clone()
+                };
+                match s {
+                    Some(s) => break s,
+                    None => tokio::time::sleep(std::time::Duration::from_secs(2)).await,
+                }
+            };
+
+            let imap_cfg = match &state.config.imap {
+                Some(c) => c.clone(),
+                None => return, // should not happen
+            };
+
+            // Do an initial fetch so conversations are populated on login.
+            refresh_conversations(&state, &session.email, &session.password).await;
+
+            // Clone what the closure needs.
+            let state_for_cb = state.clone();
+            let email_for_cb = session.email.clone();
+            let password_for_cb = session.password.clone();
+
+            tracing::info!("Starting IMAP IDLE for {}", session.email);
+
+            let result = crate::email::imap::idle_loop(
+                &imap_cfg,
+                &session.email,
+                &session.password,
+                move || {
+                    // This closure is called from within an async context (the
+                    // IDLE future), so we spawn a new task to do the async work.
+                    let s = state_for_cb.clone();
+                    let e = email_for_cb.clone();
+                    let p = password_for_cb.clone();
+                    tokio::spawn(async move {
+                        refresh_conversations(&s, &e, &p).await;
+                    });
+                },
+            )
+            .await;
+
+            match result {
+                Ok(()) => {
+                    tracing::debug!("IMAP IDLE loop exited cleanly");
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "IMAP IDLE error: {e}; reconnecting in {RECONNECT_DELAY_SECS}s"
+                    );
+                }
+            }
+
+            // Check whether the user is still logged in before reconnecting.
+            let still_logged_in = state.inner.read().await.session.is_some();
+            if !still_logged_in {
+                continue; // will wait for login again at top of outer loop
+            }
+
+            tokio::time::sleep(std::time::Duration::from_secs(RECONNECT_DELAY_SECS)).await;
+        }
+    });
+}
+
+/// Polling-based background task (POP3 / unconfigured).
+fn spawn_polling_task(state: AppState) {
     // Use POP3 poll interval if configured; otherwise default to 30 s.
     let interval_secs = state
         .config
@@ -91,26 +183,26 @@ fn spawn_refresh_task(state: AppState) {
             };
 
             if let Some(session) = session {
-                match crate::email::mail_service::fetch_conversations(
-                    &state.config,
-                    &session.email,
-                    &session.password,
-                )
-                .await
-                {
-                    Ok(convos) => {
-                        let mut inner = state.inner.write().await;
-                        inner.conversations = convos;
-                        state
-                            .events
-                            .send(crate::state::AppEvent::ConversationsUpdated)
-                            .ok();
-                    }
-                    Err(e) => {
-                        tracing::warn!("Background refresh failed: {e}");
-                    }
-                }
+                refresh_conversations(&state, &session.email, &session.password).await;
             }
         }
     });
 }
+
+/// Fetch conversations and broadcast an SSE refresh event.
+async fn refresh_conversations(state: &AppState, email: &str, password: &str) {
+    match crate::email::mail_service::fetch_conversations(&state.config, email, password).await {
+        Ok(convos) => {
+            let mut inner = state.inner.write().await;
+            inner.conversations = convos;
+            state
+                .events
+                .send(crate::state::AppEvent::ConversationsUpdated)
+                .ok();
+        }
+        Err(e) => {
+            tracing::warn!("Conversation refresh failed: {e}");
+        }
+    }
+}
+
