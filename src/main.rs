@@ -21,8 +21,54 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::config::AppConfig;
 use crate::state::AppState;
 
+fn print_help() {
+    println!("RoundChat — chat built on the universal language of the internet: email.");
+    println!();
+    println!("Usage:");
+    println!("  roundchat serve   Start the local HTTP server and open the browser");
+    println!("  roundchat help    Show this help message");
+    println!();
+    println!("Environment variables:");
+    println!("  IMAP_HOST           IMAP server hostname (preferred over POP3)");
+    println!("  IMAP_PORT           IMAP port (default: 993)");
+    println!("  IMAP_TLS            Enable TLS for IMAP (default: true)");
+    println!("  POP3_HOST           POP3 server hostname (used when IMAP_HOST is unset)");
+    println!("  POP3_PORT           POP3 port (default: 995)");
+    println!("  POP3_TLS            Enable TLS for POP3 (default: true)");
+    println!("  POP3_POLL_INTERVAL  Polling interval in seconds (default: 30)");
+    println!("  SMTP_HOST           SMTP server hostname (default: localhost)");
+    println!("  SMTP_PORT           SMTP port (default: 465)");
+    println!("  SMTP_TLS            Enable TLS for SMTP (default: true)");
+    println!("  CARDDAV_URL         CardDAV address book URL ({{email}} placeholder)");
+    println!("  WEBDAV_URL          WebDAV file storage URL ({{email}} placeholder)");
+    println!("  ROUNDCHAT_PORT      Local HTTP server port (default: 7979)");
+    println!();
+    println!("Configuration:");
+    println!("  Copy .env.example to .env and fill in your mail server details,");
+    println!("  then run: roundchat serve");
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let command = args.get(1).map(|s| s.as_str()).unwrap_or("serve");
+
+    match command {
+        "serve" => run_serve().await,
+        "help" => {
+            print_help();
+            Ok(())
+        }
+        other => {
+            eprintln!("roundchat: unknown command: {other}");
+            eprintln!();
+            print_help();
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn run_serve() -> Result<()> {
     // Initialise logging (RUST_LOG env var, default to info).
     tracing_subscriber::registry()
         .with(
