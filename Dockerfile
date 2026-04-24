@@ -27,4 +27,4 @@ WORKDIR /app
 
 EXPOSE 3000
 
-CMD ["roundchat"]
+CMD ["roundchat", "serve"]

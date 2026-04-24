@@ -55,12 +55,18 @@ See `.env.example` for the full list of options including POP3, CardDAV and WebD
 ### 3 · Run
 
 ```sh
-./roundchat          # Linux
-roundchat.exe        # Windows
+./roundchat serve          # Linux
+roundchat.exe serve        # Windows
 ```
 
 RoundChat opens your default browser at `http://127.0.0.1:7979` automatically.
 Sign in with your email address and password (or app-specific password).
+
+To see all available commands and environment variables:
+
+```sh
+./roundchat help
+```
 
 ---
 
