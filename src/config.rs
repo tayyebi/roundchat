@@ -44,6 +44,9 @@ pub struct AppConfig {
     pub smtp: SmtpConfig,
     pub carddav: Option<CardDavConfig>,
     pub webdav: Option<WebDavConfig>,
+    /// IP address the HTTP server binds to (env: ROUNDCHAT_HOST, default: 127.0.0.1).
+    pub host: String,
+    /// TCP port the HTTP server listens on (env: ROUNDCHAT_PORT, default: 7979).
     pub port: u16,
 }
 
@@ -104,8 +107,9 @@ impl AppConfig {
 
         let carddav = env("CARDDAV_URL").map(|url| CardDavConfig { url });
         let webdav = env("WEBDAV_URL").map(|url| WebDavConfig { url });
+        let host = env_or("ROUNDCHAT_HOST", "127.0.0.1");
         let port = env_u16("ROUNDCHAT_PORT", 7979);
 
-        AppConfig { imap, pop3, smtp, carddav, webdav, port }
+        AppConfig { imap, pop3, smtp, carddav, webdav, host, port }
     }
 }

@@ -13,7 +13,7 @@ mod models;
 mod state;
 
 use anyhow::Result;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -41,6 +41,7 @@ fn print_help() {
     println!("  SMTP_TLS            Enable TLS for SMTP (default: true)");
     println!("  CARDDAV_URL         CardDAV address book URL ({{email}} placeholder)");
     println!("  WEBDAV_URL          WebDAV file storage URL ({{email}} placeholder)");
+    println!("  ROUNDCHAT_HOST      Bind IP address for the HTTP server (default: 127.0.0.1)");
     println!("  ROUNDCHAT_PORT      Local HTTP server port (default: 7979)");
     println!();
     println!("Configuration:");
@@ -80,6 +81,10 @@ async fn run_serve() -> Result<()> {
 
     // Load configuration from environment variables.
     let config = AppConfig::from_env();
+    let host: IpAddr = config.host.parse().unwrap_or_else(|e| {
+        tracing::warn!("Invalid ROUNDCHAT_HOST '{}': {e}; falling back to 127.0.0.1", config.host);
+        IpAddr::from([127, 0, 0, 1])
+    });
     let port = config.port;
 
     let state = AppState::new(config);
@@ -95,7 +100,7 @@ async fn run_serve() -> Result<()> {
 
     let app = api::router(state).layer(cors);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let addr = SocketAddr::from((host, port));
     let listener = TcpListener::bind(addr).await?;
     let actual_addr = listener.local_addr()?;
     let url = format!("http://{actual_addr}");
