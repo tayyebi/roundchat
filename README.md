@@ -77,9 +77,9 @@ To keep RoundChat running in the background and start automatically on boot, ins
 **1 · Place the binary and config**
 
 ```sh
-mkdir -p /root/roundchat
-cp roundchat /root/roundchat/roundchat
-cp .env /root/roundchat/env.txt
+cp roundchat /usr/local/bin/roundchat
+chmod +x /usr/local/bin/roundchat
+cp .env /etc/roundchat.env
 ```
 
 **2 · Create the unit file**
@@ -93,8 +93,8 @@ Wants=network.target
 
 [Service]
 Type=simple
-EnvironmentFile=/root/roundchat/env.txt
-ExecStart=/root/roundchat/roundchat serve
+EnvironmentFile=/etc/roundchat.env
+ExecStart=/usr/local/bin/roundchat serve
 Restart=on-failure
 RestartSec=5
 
