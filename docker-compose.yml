@@ -3,6 +3,9 @@ services:
     image: ghcr.io/tayyebi/roundchat:latest
     ports:
       - "3000:3000"
+    environment:
+      ROUNDCHAT_HOST: "0.0.0.0"
+      ROUNDCHAT_PORT: "3000"
     env_file:
       - .env
     restart: unless-stopped
