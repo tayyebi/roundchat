@@ -50,8 +50,21 @@ pub struct AppConfig {
     pub port: u16,
 }
 
+fn strip_inline_comment(value: String) -> String {
+    // systemd EnvironmentFile does not strip inline shell-style comments.
+    // Trim everything from the first " #" or "\t#" onward.
+    let pos = value.find(" #").or_else(|| value.find("\t#"));
+    match pos {
+        Some(p) => value[..p].trim_end().to_string(),
+        None => value,
+    }
+}
+
 fn env(key: &str) -> Option<String> {
-    std::env::var(key).ok().filter(|v| !v.is_empty())
+    std::env::var(key)
+        .ok()
+        .map(strip_inline_comment)
+        .filter(|v| !v.is_empty())
 }
 
 fn env_or(key: &str, default: &str) -> String {
