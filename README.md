@@ -70,6 +70,54 @@ To see all available commands and environment variables:
 
 ---
 
+## Run as a system service (Linux)
+
+To keep RoundChat running in the background and start automatically on boot, install it as a systemd service.
+
+**1 · Place the binary and config**
+
+```sh
+mkdir -p /root/roundchat
+cp roundchat /root/roundchat/roundchat
+cp .env /root/roundchat/env.txt
+```
+
+**2 · Create the unit file**
+
+Save the following to `/etc/systemd/system/roundchat.service`:
+
+```ini
+[Unit]
+Description=Roundchat
+Wants=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/root/roundchat/env.txt
+ExecStart=/root/roundchat/roundchat serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**3 · Enable and start**
+
+```sh
+systemctl daemon-reload
+systemctl enable --now roundchat
+```
+
+Check the status at any time with:
+
+```sh
+systemctl status roundchat
+journalctl -u roundchat -f
+```
+
+---
+
 ## Privacy & security
 
 - **No cloud, no accounts** — RoundChat runs entirely on your machine and talks directly to your own mail/DAV servers.
