@@ -111,7 +111,7 @@ async fn run_serve() -> Result<()> {
     let url_clone = url.clone();
     tokio::task::spawn_blocking(move || {
         if let Err(e) = open::that(&url_clone) {
-            tracing::warn!("Could not open browser: {e}");
+            tracing::debug!("Could not open browser: {e}");
         }
     });
 
