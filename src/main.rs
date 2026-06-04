@@ -196,7 +196,7 @@ fn spawn_imap_idle_task(state: AppState) {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        "IMAP IDLE error: {e}; reconnecting in {RECONNECT_DELAY_SECS}s"
+                        "IMAP IDLE error: {e:#}; reconnecting in {RECONNECT_DELAY_SECS}s"
                     );
                 }
             }
@@ -252,7 +252,7 @@ async fn refresh_conversations(state: &AppState, email: &str, password: &str) {
                 .ok();
         }
         Err(e) => {
-            tracing::warn!("Conversation refresh failed: {e}");
+            tracing::warn!("Conversation refresh failed: {e:#}");
         }
     }
 }
