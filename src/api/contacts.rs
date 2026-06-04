@@ -35,10 +35,13 @@ pub async fn list(State(state): State<AppState>) -> impl IntoResponse {
     .await
     {
         Ok(contacts) => Json(contacts).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::error!("Failed to fetch contacts for {}: {e:#}", session.email);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("{e:#}") })),
+            )
+                .into_response()
+        }
     }
 }
