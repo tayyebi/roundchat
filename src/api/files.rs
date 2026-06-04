@@ -31,11 +31,14 @@ pub async fn list(State(state): State<AppState>) -> impl IntoResponse {
 
     match webdav::list_files(&webdav_cfg.url, &session.email, &session.password).await {
         Ok(files) => Json(files).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::error!("Failed to list WebDAV files for {}: {e:#}", session.email);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("{e:#}") })),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -104,11 +107,14 @@ pub async fn upload(
     .await
     {
         Ok(url) => Json(serde_json::json!({ "url": url })).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::error!("Failed to upload file for {}: {e:#}", session.email);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("{e:#}") })),
+            )
+                .into_response()
+        }
     }
 }
 
