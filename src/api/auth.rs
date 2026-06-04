@@ -65,11 +65,14 @@ pub async fn login(
             )
                 .into_response()
         }
-        Err(e) => (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::error!("Login failed for {email}: {e:#}");
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": format!("{e:#}") })),
+            )
+                .into_response()
+        }
     }
 }
 
