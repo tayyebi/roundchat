@@ -93,3 +93,18 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build and export Tarball
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          tags: roundchat:latest
+          outputs: type=docker,dest=roundchat-docker.tar
+          cache-from: type=gha
+
+      - name: Upload Docker Tarball Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: roundchat-docker-tarball
+          path: roundchat-docker.tar
+          if-no-files-found: error

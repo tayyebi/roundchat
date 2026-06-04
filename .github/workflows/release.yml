@@ -63,9 +63,34 @@ jobs:
           path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
           if-no-files-found: error
 
+  docker:
+    name: Build Docker Tarball
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and export Tarball
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          tags: roundchat:latest
+          outputs: type=docker,dest=roundchat-docker.tar
+          cache-from: type=gha
+
+      - name: Upload Docker Tarball Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: roundchat-docker-tarball
+          path: roundchat-docker.tar
+          if-no-files-found: error
+
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, docker]
     runs-on: ubuntu-22.04
     steps:
       - name: Download all artifacts
@@ -79,3 +104,4 @@ jobs:
           files: |
             artifacts/roundchat-linux-x86_64/roundchat
             artifacts/roundchat-windows-x86_64.exe/roundchat.exe
+            artifacts/roundchat-docker-tarball/roundchat-docker.tar
