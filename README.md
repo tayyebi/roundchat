@@ -118,6 +118,80 @@ journalctl -u roundchat -f
 
 ---
 
+## Run with Docker
+
+If you prefer to run RoundChat inside a Docker container, you can use one of the following methods.
+
+### Method A · Docker Compose
+
+Ensure you have [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed.
+
+**1 · Download configuration**
+
+Save [**`docker-compose.yml`**](./docker-compose.yml) and [**`.env.example`**](./.env.example) (as `.env`) to a directory on your server.
+
+**2 · Configure**
+
+Configure your email server details in `.env`:
+
+```sh
+cp .env.example .env
+```
+
+Edit the `.env` file to set your IMAP, SMTP, and other settings.
+
+**3 · Start the service**
+
+Start the container in the background:
+
+```sh
+docker compose up -d
+```
+
+Access RoundChat in your browser at `http://localhost:3000`.
+
+To view logs or stop the service:
+
+```sh
+docker compose logs -f
+docker compose down
+```
+
+---
+
+### Method B · Docker Load Tarball
+
+If you cannot or do not want to pull from GitHub Container Registry (GHCR), you can download the pre-packaged Docker image as a tarball.
+
+**1 · Download the tarball**
+
+Grab the latest `roundchat-docker.tar` from the [**Actions → Artifacts**](../../actions) tab, or from the latest release assets on the [**Releases**](../../releases) page.
+
+**2 · Load the image**
+
+Load the image into your local Docker daemon:
+
+```sh
+docker load -i roundchat-docker.tar
+```
+
+**3 · Run the container**
+
+Make sure you have configured your `.env` file, then start the container:
+
+```sh
+docker run -d \
+  --name roundchat \
+  -p 7979:7979 \
+  --env-file .env \
+  --restart unless-stopped \
+  roundchat:latest
+```
+
+Access RoundChat in your browser at `http://localhost:7979`.
+
+---
+
 ## Privacy & security
 
 - **No cloud, no accounts** — RoundChat runs entirely on your machine and talks directly to your own mail/DAV servers.
