@@ -22,6 +22,7 @@ const state = {
 
 window.addEventListener('DOMContentLoaded', async () => {
   bindStaticEvents();
+  initTheme();
   const session = await api.getSession();
   if (session && session.logged_in) {
     state.session = session;
@@ -85,6 +86,9 @@ function bindStaticEvents() {
   el('btn-refresh').addEventListener('click', () => loadConversations());
   el('btn-refresh-contacts').addEventListener('click', () => loadContacts());
   el('btn-refresh-files').addEventListener('click', () => loadFiles());
+
+  // Theme toggle
+  el('btn-theme').addEventListener('click', toggleTheme);
 
   // Back button in chat overlay
   el('btn-back').addEventListener('click', closeChat);
@@ -446,6 +450,32 @@ function disconnectSSE() {
     state.eventSource.close();
     state.eventSource = null;
   }
+}
+
+// ─── Dark mode ────────────────────────────────────────────────────────────────
+
+function initTheme() {
+  const saved = localStorage.getItem('roundchat-theme');
+  if (saved) {
+    applyTheme(saved);
+  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    applyTheme('dark');
+  } else {
+    applyTheme('light');
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('roundchat-theme', theme);
+  const isDark = theme === 'dark';
+  el('theme-icon').textContent = isDark ? '☀️' : '🌙';
+  el('theme-label').textContent = isDark ? 'Light' : 'Dark';
 }
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────

@@ -21,9 +21,56 @@
   --green:     #34C759;
   --bubble-me: #007AFF;
   --bubble-them: #E5E5EA;
+  --input-bg:  #F2F2F7;
   --radius:    14px;
   --nav-h:     56px;
   --header-h:  56px;
+}
+
+[data-theme="dark"] {
+  --bg:        #000000;
+  --surface:   #1C1C1E;
+  --border:    #38383A;
+  --text:      #FFFFFF;
+  --text-dim:  #8E8E93;
+  --bubble-them: #2C2C2E;
+  --input-bg:  #2C2C2E;
+}
+
+html {
+  transition: background-color .3s;
+}
+
+html, body {
+  transition: color .3s, background-color .3s;
+}
+
+[data-theme="dark"] .login-card {
+  box-shadow: 0 4px 40px rgba(0,0,0,.4);
+}
+
+[data-theme="dark"] .convo-row:hover {
+  background: #2C2C2E;
+}
+
+[data-theme="dark"] .icon-btn:hover {
+  background: rgba(0,122,255,.2);
+}
+
+[data-theme="dark"] .btn-outline:hover {
+  background: rgba(0,122,255,.2);
+}
+
+[data-theme="dark"] .btn-primary:hover:not(:disabled) {
+  background: #409CFF;
+}
+
+[data-theme="dark"] .file-actions a:hover {
+  background: rgba(0,122,255,.2);
+}
+
+[data-theme="dark"] .file-actions button:hover {
+  background: rgba(255,59,48,.2);
 }
 
 html, body {
@@ -97,7 +144,7 @@ html, body {
   border-radius: 12px;
   font-size: 16px;
   color: var(--text);
-  background: var(--bg);
+  background: var(--input-bg);
   outline: none;
   transition: border-color .15s;
 }
@@ -556,7 +603,7 @@ html, body {
   border-radius: 20px;
   font-size: 15px;
   outline: none;
-  background: var(--bg);
+  background: var(--input-bg);
   transition: border-color .15s;
 }
 
