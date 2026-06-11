@@ -61,6 +61,7 @@ fn connect(config: &Pop3Config, email: &str, password: &str) -> Result<Pop3Strea
         let mut builder = TlsConnector::builder();
         if config.tls_insecure {
             builder.danger_accept_invalid_certs(true);
+            builder.danger_accept_invalid_hostnames(true);
         }
         let connector = builder
             .build()

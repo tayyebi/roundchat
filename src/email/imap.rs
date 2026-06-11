@@ -35,6 +35,7 @@ async fn open_session(
     let mut builder = tokio_native_tls::native_tls::TlsConnector::builder();
     if config.tls_insecure {
         builder.danger_accept_invalid_certs(true);
+        builder.danger_accept_invalid_hostnames(true);
     }
     let native_cx = builder
         .build()

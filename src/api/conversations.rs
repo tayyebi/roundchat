@@ -103,9 +103,22 @@ pub async fn mark_read(
         return StatusCode::UNAUTHORIZED.into_response();
     };
 
-    mail_service::mark_read(&state.config, &session.email, &session.password, &uid)
-        .await
-        .ok();
-
-    StatusCode::OK.into_response()
+    match mail_service::mark_read(
+        &state.config,
+        &session.email,
+        &session.password,
+        &uid,
+    )
+    .await
+    {
+        Ok(()) => StatusCode::OK.into_response(),
+        Err(e) => {
+            tracing::warn!("mark_read failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    }
 }
