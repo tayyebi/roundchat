@@ -58,7 +58,11 @@ fn connect(config: &Pop3Config, email: &str, password: &str) -> Result<Pop3Strea
     tcp.set_read_timeout(Some(std::time::Duration::from_secs(30)))?;
 
     let mut stream = if config.tls {
-        let connector = TlsConnector::builder()
+        let mut builder = TlsConnector::builder();
+        if config.tls_insecure {
+            builder.danger_accept_invalid_certs(true);
+        }
+        let connector = builder
             .build()
             .context("TLS build failed")?;
         let tls_stream = connector

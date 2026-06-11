@@ -32,7 +32,11 @@ async fn open_session(
         .await
         .context("IMAP TCP connect failed")?;
 
-    let native_cx = tokio_native_tls::native_tls::TlsConnector::builder()
+    let mut builder = tokio_native_tls::native_tls::TlsConnector::builder();
+    if config.tls_insecure {
+        builder.danger_accept_invalid_certs(true);
+    }
+    let native_cx = builder
         .build()
         .context("TLS connector build failed")?;
     let cx = tokio_native_tls::TlsConnector::from(native_cx);

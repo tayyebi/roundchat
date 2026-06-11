@@ -118,6 +118,48 @@ journalctl -u roundchat -f
 
 ---
 
+## Docker deployment (air-gapped server)
+
+When the server has no internet access to GitHub Container Registry, deploy via Docker tarball.
+
+### CI workflow
+
+Pushing a `v*` tag triggers the **Build and Push Docker Image** workflow which:
+
+1. Builds the Docker image and pushes it to `ghcr.io/tayyebi/roundchat`
+2. Exports the image as `roundchat-docker.tar`
+3. Attaches the tarball to the GitHub release
+
+### Deploy to an air-gapped server
+
+```sh
+# 1. Download the tarball from the release
+gh release download v1.0.0 --pattern "roundchat-docker.tar"
+
+# 2. Upload to the server
+scp roundchat-docker.tar root@your-server:/root/roundchat/
+
+# 3. Load and run on the server
+ssh root@your-server
+cd /root/roundchat
+docker load -i roundchat-docker.tar
+docker tag <loaded-image-id> ghcr.io/tayyebi/roundchat:v1.0.0
+docker compose up -d
+```
+
+### Server directory layout
+
+```
+/root/roundchat/
+├── .env                     # environment configuration
+├── docker-compose.yml       # service definition
+└── roundchat-docker.tar     # pre-built Docker image (loaded with docker load)
+```
+
+Set `IMAP_TLS_INSECURE=true` in `.env` when the IMAP server uses a self-signed certificate.
+
+---
+
 ## Privacy & security
 
 - **No cloud, no accounts** — RoundChat runs entirely on your machine and talks directly to your own mail/DAV servers.
@@ -160,9 +202,11 @@ GitHub Actions builds both targets on every push and uploads artifacts.
 | `IMAP_HOST` | IMAP server hostname | — |
 | `IMAP_PORT` | IMAP port | `993` |
 | `IMAP_TLS` | Enable TLS | `true` |
+| `IMAP_TLS_INSECURE` | Skip TLS certificate verification (self-signed certs) | `false` |
 | `POP3_HOST` | POP3 server (used when `IMAP_HOST` is unset) | — |
 | `POP3_PORT` | POP3 port | `995` |
 | `POP3_TLS` | Enable TLS | `true` |
+| `POP3_TLS_INSECURE` | Skip TLS certificate verification (self-signed certs) | `false` |
 | `POP3_POLL_INTERVAL` | Polling interval in seconds | `30` |
 | `SMTP_HOST` | SMTP server hostname | `localhost` |
 | `SMTP_PORT` | SMTP port | `465` |

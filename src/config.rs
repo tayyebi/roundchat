@@ -5,11 +5,11 @@
 /// Nothing outside this module reads `std::env::var` directly.
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct ImapConfig {
     pub host: String,
     pub port: u16,
     pub tls: bool,
+    pub tls_insecure: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -17,6 +17,7 @@ pub struct Pop3Config {
     pub host: String,
     pub port: u16,
     pub tls: bool,
+    pub tls_insecure: bool,
     pub poll_interval_secs: u64,
 }
 
@@ -99,6 +100,7 @@ impl AppConfig {
             host,
             port: env_u16("IMAP_PORT", 993),
             tls: env_bool("IMAP_TLS", true),
+            tls_insecure: env_bool("IMAP_TLS_INSECURE", false),
         });
 
         let pop3 = if imap.is_none() {
@@ -106,6 +108,7 @@ impl AppConfig {
                 host,
                 port: env_u16("POP3_PORT", 995),
                 tls: env_bool("POP3_TLS", true),
+                tls_insecure: env_bool("POP3_TLS_INSECURE", false),
                 poll_interval_secs: env_u64("POP3_POLL_INTERVAL", 30),
             })
         } else {
