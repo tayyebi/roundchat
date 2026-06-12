@@ -426,24 +426,7 @@ async function deleteFile(idx) {
 function connectSSE() {
   if (state.eventSource) return;
   const es = new EventSource('/api/events');
-  es.addEventListener('refresh', () => {
-    if (state.activeConvo) {
-      // Re-fetch and update active conversation in place.
-      api.getConversations().then(convos => {
-        state.conversations = convos || [];
-        const updated = convos.find(c => c.id === state.activeConvo.id);
-        if (updated) {
-          state.activeConvo = updated;
-          renderMessages(updated.messages);
-        }
-        renderConversations();
-      }).catch(() => {});
-    } else {
-      loadConversations();
-    }
-  });
   es.onerror = () => {
-    // Reconnect after 5s on error.
     state.eventSource = null;
     setTimeout(connectSSE, 5000);
   };
