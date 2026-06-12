@@ -215,6 +215,7 @@ fn decode_rfc2047(input: &str) -> String {
             {
                 return String::from_utf8_lossy(&bytes).to_string();
             }
+            tracing::warn!("RFC 2047 B-encoding base64 decode failed for: {text}");
         }
         text.to_string()
     })

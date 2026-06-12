@@ -26,7 +26,10 @@ pub async fn handler(State(state): State<AppState>) -> impl IntoResponse {
                     Event::default().event("refresh").data(""),
                 ))
             }
-            Err(_) => None,
+            Err(_) => {
+                tracing::debug!("SSE subscriber lagged behind, dropping event");
+                None
+            }
         }
     });
 

@@ -130,9 +130,15 @@ pub async fn remove(
         return StatusCode::UNAUTHORIZED.into_response();
     };
 
-    webdav::delete_file(&req.url, &session.email, &session.password)
-        .await
-        .ok();
-
-    StatusCode::OK.into_response()
+    match webdav::delete_file(&req.url, &session.email, &session.password).await {
+        Ok(()) => StatusCode::OK.into_response(),
+        Err(e) => {
+            tracing::warn!("WebDAV delete failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    }
 }

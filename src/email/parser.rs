@@ -19,6 +19,7 @@ pub fn parse_raw_message(raw: &str, fallback_id: &str) -> Result<Message> {
         .trim_matches(|c| c == '<' || c == '>')
         .to_string();
     let id = if message_id.is_empty() {
+        tracing::warn!("Message missing Message-ID header, using fallback: {fallback_id}");
         fallback_id.to_string()
     } else {
         message_id
@@ -27,6 +28,9 @@ pub fn parse_raw_message(raw: &str, fallback_id: &str) -> Result<Message> {
     let from = headers
         .get_first_value("From")
         .unwrap_or_default();
+    if from.is_empty() {
+        tracing::warn!("Message {id} missing From header");
+    }
     let from = extract_first_address(&from);
 
     let to_header = headers.get_first_value("To").unwrap_or_default();
@@ -79,7 +83,11 @@ fn extract_first_address(raw: &str) -> String {
 /// Extract the plain-text body from a possibly multipart email.
 fn extract_body(parsed: &mailparse::ParsedMail) -> String {
     if parsed.subparts.is_empty() {
-        return parsed.get_body().unwrap_or_default();
+        match parsed.get_body() {
+            Ok(body) => return body,
+            Err(e) => tracing::warn!("Failed to decode email body: {e}"),
+        }
+        return String::new();
     }
     // Prefer text/plain part in multipart messages.
     for part in &parsed.subparts {
@@ -88,11 +96,20 @@ fn extract_body(parsed: &mailparse::ParsedMail) -> String {
             .get_first_value("Content-Type")
             .unwrap_or_default();
         if ct.to_lowercase().starts_with("text/plain") {
-            return part.get_body().unwrap_or_default();
+            match part.get_body() {
+                Ok(body) => return body,
+                Err(e) => tracing::warn!("Failed to decode text/plain part: {e}"),
+            }
         }
     }
     // Fallback: first part body.
-    parsed.subparts[0].get_body().unwrap_or_default()
+    match parsed.subparts[0].get_body() {
+        Ok(body) => body,
+        Err(e) => {
+            tracing::warn!("Failed to decode fallback body part: {e}");
+            String::new()
+        }
+    }
 }
 
 /// Extract WebDAV-linked attachments from the body text.
