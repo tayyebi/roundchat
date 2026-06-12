@@ -7,7 +7,7 @@ use base64::Engine;
 use crate::models::RemoteFile;
 
 fn build_url(url_template: &str, email: &str, path: &str) -> String {
-    let base = url_template.replace("{email}", &urlencoding::encode(email).to_string());
+    let base = url_template.replace("{email}", email);
     let base = if base.ends_with('/') {
         base
     } else {

@@ -13,7 +13,7 @@ pub async fn fetch_all_contacts(
     email: &str,
     password: &str,
 ) -> Result<Vec<Contact>> {
-    let url = url_template.replace("{email}", &urlencoding::encode(email).to_string());
+    let url = url_template.replace("{email}", email);
     let auth = base64::engine::general_purpose::STANDARD
         .encode(format!("{email}:{password}"));
 
