@@ -50,10 +50,6 @@
       <span class="tab-icon">👤</span>
       <span class="tab-label">Contacts</span>
     </button>
-    <button class="tab" data-pane="pane-files">
-      <span class="tab-icon">📁</span>
-      <span class="tab-label">Files</span>
-    </button>
     <button class="tab" data-pane="pane-settings">
       <span class="tab-icon">⚙️</span>
       <span class="tab-label">Settings</span>
@@ -78,19 +74,6 @@
       <button id="btn-refresh-contacts" class="icon-btn" title="Refresh">⟳</button>
     </div>
     <div id="contacts-list" class="scroll-list">
-      <div class="placeholder">Loading…</div>
-    </div>
-  </div>
-
-  <!-- Pane: Files -->
-  <div id="pane-files" class="pane">
-    <div class="pane-header">
-      <h2>Files</h2>
-      <button id="btn-refresh-files" class="icon-btn" title="Refresh">⟳</button>
-    </div>
-    <button id="btn-upload" class="btn btn-outline upload-btn">Upload file</button>
-    <input id="file-input" type="file" class="hidden" />
-    <div id="files-list" class="scroll-list">
       <div class="placeholder">Loading…</div>
     </div>
   </div>
@@ -123,7 +106,22 @@
     <button id="btn-chat-refresh" class="icon-btn" title="Refresh">⟳</button>
   </div>
   <div id="chat-messages" class="chat-messages"></div>
+  <div id="attach-picker" class="attach-picker hidden">
+    <div class="attach-picker-header">
+      <span class="attach-picker-title">Attach file</span>
+      <button id="btn-close-attach" class="icon-btn" type="button">✕</button>
+    </div>
+    <div id="attach-grid" class="attach-grid">
+      <div class="placeholder">Loading…</div>
+    </div>
+    <div class="attach-picker-footer">
+      <button id="btn-upload-attach" class="btn btn-outline attach-upload-btn" type="button">+ Upload file</button>
+      <input id="attach-file-input" type="file" class="hidden" />
+    </div>
+  </div>
+  <div id="attach-chips" class="attach-chips hidden"></div>
   <form id="chat-form" class="chat-input-row">
+    <button type="button" id="btn-attach" class="btn-attach" title="Attach file">📎</button>
     <input id="chat-input" type="text" class="chat-field"
            placeholder="Message…" autocomplete="off" />
     <button type="submit" class="btn btn-send">Send</button>

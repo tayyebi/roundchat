@@ -9,12 +9,16 @@
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
+let attachObserver = null;
+
 const state = {
   session: null,        // { email }
   conversations: [],    // Conversation[]
   activeConvo: null,    // Conversation | null
   contacts: [],         // Contact[]
   files: [],            // RemoteFile[]
+  attachments: [],      // RemoteFile[] pending for current message
+  attachGridChunk: 20,  // lazy-load chunk size
   eventSource: null,    // EventSource | null
 };
 
@@ -82,8 +86,6 @@ function bindStaticEvents() {
   // Refresh buttons
   el('btn-refresh').addEventListener('click', () => loadConversations());
   el('btn-refresh-contacts').addEventListener('click', () => loadContacts());
-  el('btn-refresh-files').addEventListener('click', () => loadFiles());
-
   // Settings
   el('btn-settings-theme').addEventListener('click', toggleTheme);
   el('btn-settings-signout').addEventListener('click', handleSignOut);
@@ -95,9 +97,11 @@ function bindStaticEvents() {
   // Send message
   el('chat-form').addEventListener('submit', handleSend);
 
-  // File upload
-  el('btn-upload').addEventListener('click', () => el('file-input').click());
-  el('file-input').addEventListener('change', handleFileUpload);
+  // Attachment picker
+  el('btn-attach').addEventListener('click', toggleAttachPicker);
+  el('btn-close-attach').addEventListener('click', closeAttachPicker);
+  el('btn-upload-attach').addEventListener('click', () => el('attach-file-input').click());
+  el('attach-file-input').addEventListener('change', handleAttachUpload);
 }
 
 async function handleLogin() {
@@ -139,9 +143,9 @@ async function handleSignOut() {
   state.conversations = [];
   state.contacts = [];
   state.files = [];
+  state.attachments = [];
   el('conversations-list').innerHTML = '<div class="placeholder">Loading…</div>';
   el('contacts-list').innerHTML     = '<div class="placeholder">Loading…</div>';
-  el('files-list').innerHTML        = '<div class="placeholder">Loading…</div>';
   showLogin();
 }
 
@@ -166,7 +170,6 @@ function switchPane(paneId) {
   );
   // Lazy-load pane data.
   if (paneId === 'pane-contacts' && state.contacts.length === 0) loadContacts();
-  if (paneId === 'pane-files'    && state.files.length === 0)    loadFiles();
 }
 
 // ─── Conversations ────────────────────────────────────────────────────────────
@@ -275,7 +278,8 @@ async function handleSend(e) {
   e.preventDefault();
   const input = el('chat-input');
   const text  = input.value.trim();
-  if (!text || !state.activeConvo) return;
+  if (!state.activeConvo) return;
+  if (!text && (!state.attachments || state.attachments.length === 0)) return;
 
   const convo   = state.activeConvo;
   const myEmail = (state.session && state.session.email) || '';
@@ -286,23 +290,35 @@ async function handleSend(e) {
     return;
   }
 
+  const attachRefs = (state.attachments || []).map(f =>
+    `📎 ${f.name} (${f.url})`
+  ).join('\n');
+  const fullBody = attachRefs ? (text ? attachRefs + '\n\n' + text : attachRefs) : text;
+
   input.value   = '';
   input.disabled = true;
 
   try {
-    await api.sendMessage(to, text, convo.group_name);
-    // Optimistic UI: append bubble immediately.
+    await api.sendMessage(to, fullBody, convo.group_name);
     const optimistic = {
       id: `local-${Date.now()}`,
       from: myEmail,
       to,
       date: new Date().toISOString(),
-      body: text,
-      attachments: [],
+      body: fullBody,
+      attachments: (state.attachments || []).map(f => ({
+        url: f.url,
+        mime_type: f.mime_type,
+        filename: f.name,
+        size: 0,
+      })),
       read: true,
     };
     convo.messages.push(optimistic);
     renderMessages(convo.messages);
+    state.attachments = [];
+    renderAttachChips();
+    closeAttachPicker();
   } catch (err) {
     alert('Could not send message: ' + err.message);
   } finally {
@@ -361,49 +377,133 @@ function renderContacts() {
     </div>`).join('');
 }
 
-// ─── Files ────────────────────────────────────────────────────────────────────
+// ─── Files / Attachment Picker ────────────────────────────────────────────────
 
 async function loadFiles() {
-  setListContent('files-list', '<div class="placeholder">Loading…</div>');
   try {
     const files = await api.getFiles();
     state.files = files || [];
-    renderFiles();
-  } catch (err) {
-    setListContent('files-list',
-      `<div class="placeholder error-msg">${esc(err.message)}</div>`);
+  } catch (_) {
+    state.files = [];
   }
 }
 
-function renderFiles() {
-  const list = el('files-list');
-  if (state.files.length === 0) {
-    list.innerHTML = '<div class="placeholder">No files</div>';
+function renderAttachGrid() {
+  const grid = el('attach-grid');
+  const files = state.files;
+  if (!files || files.length === 0) {
+    grid.innerHTML = '<div class="placeholder">No files yet</div>';
     return;
   }
-  list.innerHTML = state.files.map((f, i) => `
-    <div class="file-row" data-idx="${i}">
-      <div class="file-icon">${fileIcon(f.mime_type)}</div>
-      <div class="file-info">
-        <div class="file-name">${esc(f.name)}</div>
-        <div class="file-meta">${fmtBytes(f.size)} · ${esc(f.last_modified)}</div>
-      </div>
-      <div class="file-actions">
-        <a href="${esc(f.url)}" target="_blank" rel="noreferrer" download="${esc(f.name)}">Download</a>
-        <button onclick="deleteFile(${i})">Delete</button>
-      </div>
-    </div>`).join('');
+  const chunk = state.attachGridChunk || 20;
+  const shown = files.slice(0, chunk);
+  grid.innerHTML = shown.map((f, i) => attachGridItemHTML(f, i)).join('');
+
+  const sentinel = document.createElement('div');
+  sentinel.className = 'attach-grid-sentinel';
+  grid.appendChild(sentinel);
+
+  if (chunk >= files.length) return;
+
+  if (attachObserver) attachObserver.disconnect();
+  attachObserver = new IntersectionObserver(entries => {
+    if (entries[0].isIntersecting) {
+      state.attachGridChunk = (state.attachGridChunk || 20) + 20;
+      renderAttachGrid();
+    }
+  }, { root: grid, rootMargin: '150px' });
+  attachObserver.observe(sentinel);
 }
 
-async function handleFileUpload() {
-  const fileInput = el('file-input');
-  const file = fileInput.files[0];
+function attachGridItemHTML(file, idx) {
+  const isImage = file.mime_type && file.mime_type.startsWith('image/');
+  const isSelected = state.attachments && state.attachments.some(a => a.url === file.url);
+  return `
+    <div class="attach-grid-item ${isSelected ? 'selected' : ''}" data-idx="${idx}">
+      ${isImage
+        ? `<div class="attach-thumb" style="background-image:url(${esc(file.url)})"></div>`
+        : `<div class="attach-icon-large">${fileIcon(file.mime_type)}</div>`
+      }
+      <div class="attach-item-name">${esc(file.name)}</div>
+    </div>`;
+}
+
+async function toggleAttachPicker() {
+  if (el('attach-picker').classList.contains('hidden')) {
+    openAttachPicker();
+  } else {
+    closeAttachPicker();
+  }
+}
+
+async function openAttachPicker() {
+  el('attach-picker').classList.remove('hidden');
+  state.attachGridChunk = 20;
+  await loadFiles();
+  renderAttachGrid();
+  el('attach-grid').addEventListener('click', onAttachGridClick);
+}
+
+function closeAttachPicker() {
+  el('attach-picker').classList.add('hidden');
+  if (attachObserver) attachObserver.disconnect();
+}
+
+function onAttachGridClick(e) {
+  const item = e.target.closest('.attach-grid-item');
+  if (!item) return;
+  const idx = parseInt(item.dataset.idx);
+  const file = state.files[idx];
+  if (!file) return;
+  toggleAttachment(file);
+}
+
+function toggleAttachment(file) {
+  if (!state.attachments) state.attachments = [];
+  const idx = state.attachments.findIndex(a => a.url === file.url);
+  if (idx > -1) {
+    state.attachments.splice(idx, 1);
+  } else {
+    state.attachments.push(file);
+  }
+  renderAttachGrid();
+  renderAttachChips();
+}
+
+function renderAttachChips() {
+  const container = el('attach-chips');
+  const files = state.attachments || [];
+  if (files.length === 0) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+  container.classList.remove('hidden');
+  container.innerHTML = files.map((f, i) => `
+    <span class="attach-chip">
+      ${fileIcon(f.mime_type)} ${esc(f.name)}
+      <button class="chip-remove" data-idx="${i}" type="button">✕</button>
+    </span>`).join('');
+  container.querySelectorAll('.chip-remove').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.idx);
+      state.attachments.splice(idx, 1);
+      renderAttachChips();
+      if (!el('attach-picker').classList.contains('hidden')) renderAttachGrid();
+    });
+  });
+}
+
+async function handleAttachUpload() {
+  const input = el('attach-file-input');
+  const file = input.files[0];
   if (!file) return;
 
   const formData = new FormData();
   formData.append('file', file, file.name);
 
-  const btn = el('btn-upload');
+  const btn = el('btn-upload-attach');
   btn.disabled = true;
   btn.textContent = 'Uploading…';
 
@@ -414,24 +514,13 @@ async function handleFileUpload() {
       throw new Error(err.error);
     }
     await loadFiles();
+    renderAttachGrid();
   } catch (err) {
     alert('Upload failed: ' + err.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Upload file';
-    fileInput.value = '';
-  }
-}
-
-async function deleteFile(idx) {
-  const file = state.files[idx];
-  if (!file) return;
-  if (!confirm(`Delete "${file.name}"?`)) return;
-  try {
-    await api.deleteFile(file.url);
-    await loadFiles();
-  } catch (err) {
-    alert('Delete failed: ' + err.message);
+    btn.textContent = '+ Upload file';
+    input.value = '';
   }
 }
 

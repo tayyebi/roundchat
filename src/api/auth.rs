@@ -10,6 +10,25 @@ use serde::{Deserialize, Serialize};
 use crate::state::AppState;
 use crate::models::Session;
 
+fn session_path(state: &AppState) -> std::path::PathBuf {
+    std::path::PathBuf::from(&state.config.data_dir).join("session.json")
+}
+
+fn save_session(state: &AppState, session: &Session) {
+    let path = session_path(state);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string(session) {
+        std::fs::write(&path, &json).ok();
+    }
+}
+
+fn delete_session(state: &AppState) {
+    let path = session_path(state);
+    std::fs::remove_file(&path).ok();
+}
+
 #[derive(Deserialize)]
 pub struct LoginRequest {
     pub email: String,
@@ -54,11 +73,13 @@ pub async fn login(
 
     match result {
         Ok(()) => {
-            let mut inner = state.inner.write().await;
-            inner.session = Some(Session {
+            let session = Session {
                 email: email.clone(),
                 password,
-            });
+            };
+            save_session(&state, &session);
+            let mut inner = state.inner.write().await;
+            inner.session = Some(session);
             (
                 StatusCode::OK,
                 Json(SessionResponse { email, logged_in: true }),
@@ -75,6 +96,7 @@ pub async fn login(
 
 /// POST /api/logout
 pub async fn logout(State(state): State<AppState>) -> impl IntoResponse {
+    delete_session(&state);
     let mut inner = state.inner.write().await;
     inner.session = None;
     inner.conversations.clear();

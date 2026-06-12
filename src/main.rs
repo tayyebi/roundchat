@@ -89,6 +89,15 @@ async fn run_serve() -> Result<()> {
 
     let state = AppState::new(config);
 
+    // Restore persisted session from disk (survives deploys/restarts).
+    let session_path = std::path::PathBuf::from(&state.config.data_dir).join("session.json");
+    if let Ok(json) = std::fs::read_to_string(&session_path) {
+        if let Ok(session) = serde_json::from_str::<crate::models::Session>(&json) {
+            tracing::info!("Restored session for {}", session.email);
+            state.inner.write().await.session = Some(session);
+        }
+    }
+
     // Start background refresh task.
     spawn_refresh_task(state.clone());
 

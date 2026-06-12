@@ -63,14 +63,6 @@ html, body {
   background: #409CFF;
 }
 
-[data-theme="dark"] .file-actions a:hover {
-  background: rgba(0,122,255,.2);
-}
-
-[data-theme="dark"] .file-actions button:hover {
-  background: rgba(255,59,48,.2);
-}
-
 [data-theme="dark"] .settings-signout-btn:hover {
   background: rgba(255,59,48,.2);
 }
@@ -459,64 +451,175 @@ html, body {
   margin-top: 2px;
 }
 
-/* ── File rows ────────────────────────────────────────────────────────────────── */
+/* ── Attachment button ─────────────────────────────────────────────────────────── */
 
-.upload-btn {
-  margin: 12px 16px;
-  width: calc(100% - 32px);
+.btn-attach {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 50%;
+  color: var(--blue);
+  transition: background .12s;
+  flex-shrink: 0;
+  line-height: 1;
 }
 
-.file-row {
+.btn-attach:hover {
+  background: rgba(0,122,255,.1);
+}
+
+/* ── Attachment chips ─────────────────────────────────────────────────────────── */
+
+.attach-chips {
   display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px 0;
+  overflow-x: auto;
+}
+
+.attach-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--surface);
-}
-
-.file-icon {
-  font-size: 28px;
-}
-
-.file-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.file-name {
-  font-size: 15px;
-  font-weight: 600;
+  gap: 4px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 12px;
   white-space: nowrap;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.file-meta {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-
-.file-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.file-actions a, .file-actions button {
-  font-size: 13px;
-  color: var(--blue);
+.chip-remove {
   background: none;
   border: none;
+  color: #fff;
   cursor: pointer;
-  text-decoration: none;
-  padding: 4px 8px;
-  border-radius: 6px;
+  font-size: 12px;
+  padding: 0 2px;
+  line-height: 1;
+  opacity: .7;
 }
 
-.file-actions button { color: var(--red); }
+.chip-remove:hover {
+  opacity: 1;
+}
 
-.file-actions a:hover { background: rgba(0,122,255,.1); }
-.file-actions button:hover { background: rgba(255,59,48,.1); }
+/* ── Attachment picker ────────────────────────────────────────────────────────── */
+
+.attach-picker {
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  max-height: 45vh;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.attach-picker.hidden {
+  display: none;
+}
+
+.attach-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  flex-shrink: 0;
+}
+
+.attach-picker-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.attach-grid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 8px;
+  padding: 8px 12px;
+  align-content: start;
+  -webkit-overflow-scrolling: touch;
+}
+
+.attach-grid-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 6px 4px;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  transition: border-color .12s, background .12s;
+  position: relative;
+}
+
+.attach-grid-item:hover {
+  background: rgba(0,122,255,.06);
+}
+
+.attach-grid-item.selected {
+  border-color: var(--blue);
+  background: rgba(0,122,255,.08);
+}
+
+.attach-thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--input-bg);
+}
+
+.attach-icon-large {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  background: var(--input-bg);
+}
+
+.attach-item-name {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1.2;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attach-grid-sentinel {
+  height: 1px;
+  grid-column: 1 / -1;
+}
+
+.attach-picker-footer {
+  padding: 8px 12px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.attach-upload-btn {
+  font-size: 13px;
+  padding: 8px 16px;
+  width: auto;
+}
 
 /* ── Chat overlay ─────────────────────────────────────────────────────────────── */
 
