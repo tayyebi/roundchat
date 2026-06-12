@@ -128,6 +128,18 @@
   </form>
 </div>
 
+<!-- Alert Modal -->
+<div id="modal" class="modal hidden" aria-hidden="true">
+  <div class="modal-overlay" onclick="document.getElementById('modal').classList.add('hidden')"></div>
+  <div class="modal-content" role="alertdialog" aria-modal="true" aria-labelledby="modal-title">
+  <h3 id="modal-title">Notice</h3>
+    <p id="modal-message"></p>
+    <div class="modal-actions">
+      <button id="modal-ok" class="btn btn-primary" type="button">OK</button>
+    </div>
+  </div>
+</div>
+
 <script src="/app.js"></script>
 <script>navigator.serviceWorker?.register("/sw.js");</script>
 </body>

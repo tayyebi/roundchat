@@ -6,6 +6,7 @@
 use anyhow::{bail, Context, Result};
 use lettre::message::{header::ContentType, Mailbox, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use crate::config::SmtpConfig;
 
@@ -53,13 +54,27 @@ pub async fn send_message(
 
     let creds = Credentials::new(email.to_string(), password.to_string());
 
-    let transport = if config.tls {
+    let transport = if config.port == 465 {
+        // Port 465 = SMTPS (implicit TLS).
+        let tls_params = TlsParameters::builder(config.host.clone())
+            .dangerous_accept_invalid_certs(true)
+            .dangerous_accept_invalid_hostnames(true)
+            .build()
+            .context("SMTP TLS parameters failed")?;
+        AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
+            .port(config.port)
+            .tls(Tls::Wrapper(tls_params))
+            .credentials(creds)
+            .build()
+    } else if config.tls {
+        // Port 587 (or other) = STARTTLS.
         AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)
             .context("SMTP relay setup failed")?
             .port(config.port)
             .credentials(creds)
             .build()
     } else {
+        // No encryption.
         AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
             .port(config.port)
             .credentials(creds)

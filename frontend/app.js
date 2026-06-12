@@ -286,7 +286,7 @@ async function handleSend(e) {
   const to      = convo.participants.filter(p => p !== myEmail);
 
   if (to.length === 0) {
-    alert('No other participants in this conversation to send to.');
+    showAlert('No other participants in this conversation to send to.');
     return;
   }
 
@@ -320,7 +320,7 @@ async function handleSend(e) {
     renderAttachChips();
     closeAttachPicker();
   } catch (err) {
-    alert('Could not send message: ' + err.message);
+    showAlert('Could not send message: ' + err.message);
   } finally {
     input.disabled = false;
     input.focus();
@@ -516,7 +516,7 @@ async function handleAttachUpload() {
     await loadFiles();
     renderAttachGrid();
   } catch (err) {
-    alert('Upload failed: ' + err.message);
+    showAlert('Upload failed: ' + err.message);
   } finally {
     btn.disabled = false;
     btn.textContent = '+ Upload file';
@@ -649,4 +649,40 @@ function setListContent(id, html) {
 function showError(errorEl, msg) {
   errorEl.textContent = msg;
   errorEl.classList.remove('hidden');
+}
+
+function showModal(title, message) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalMessage = document.getElementById('modal-message');
+    const modalOk = document.getElementById('modal-ok');
+
+    modalTitle.textContent = title;
+    modalMessage.textContent = message;
+    modal.classList.remove('hidden');
+
+    const handler = () => {
+      modal.classList.add('hidden');
+      modalOk.removeEventListener('click', handler);
+      resolve(true);
+    };
+
+    modalOk.addEventListener('click', handler);
+
+    // Also allow dismissing with Escape key
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        modal.classList.add('hidden');
+        modalOk.removeEventListener('click', handler);
+        document.removeEventListener('keydown', escHandler);
+        resolve(false);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+  });
+}
+
+function showAlert(message) {
+  return showModal('Notification', message);
 }
