@@ -3,7 +3,7 @@
 /// Uses the `lettre` crate (async, tokio runtime) to send outgoing messages.
 /// Each send opens a fresh connection so no persistent session is required.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use lettre::message::{header::ContentType, Mailbox, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
@@ -25,6 +25,9 @@ pub async fn send_message(
     msg: OutboundMessage,
 ) -> Result<()> {
     let from: Mailbox = msg.from.parse().context("invalid From address")?;
+    if msg.to.is_empty() {
+        bail!("no recipients specified, cannot send email");
+    }
     let subject = if msg.subject.is_empty() {
         "(no subject)".to_string()
     } else {
@@ -46,7 +49,7 @@ pub async fn send_message(
                 .header(ContentType::TEXT_PLAIN)
                 .body(msg.body.clone()),
         )
-        .context("failed to build email")?;
+        .with_context(|| format!("failed to build email (to={:?})", msg.to))?;
 
     let creds = Credentials::new(email.to_string(), password.to_string());
 

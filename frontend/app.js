@@ -282,6 +282,11 @@ async function handleSend(e) {
   const myEmail = (state.session && state.session.email) || '';
   const to      = convo.participants.filter(p => p !== myEmail);
 
+  if (to.length === 0) {
+    alert('No other participants in this conversation to send to.');
+    return;
+  }
+
   input.value   = '';
   input.disabled = true;
 
