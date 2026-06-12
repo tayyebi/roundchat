@@ -74,9 +74,6 @@ function bindStaticEvents() {
     if (e.key === 'Enter') handleLogin();
   });
 
-  // Sign out
-  el('btn-signout').addEventListener('click', handleSignOut);
-
   // Tab switching
   document.querySelectorAll('.tab[data-pane]').forEach(btn => {
     btn.addEventListener('click', () => switchPane(btn.dataset.pane));
@@ -87,11 +84,13 @@ function bindStaticEvents() {
   el('btn-refresh-contacts').addEventListener('click', () => loadContacts());
   el('btn-refresh-files').addEventListener('click', () => loadFiles());
 
-  // Theme toggle
-  el('btn-theme').addEventListener('click', toggleTheme);
+  // Settings
+  el('btn-settings-theme').addEventListener('click', toggleTheme);
+  el('btn-settings-signout').addEventListener('click', handleSignOut);
 
   // Back button in chat overlay
   el('btn-back').addEventListener('click', closeChat);
+  el('btn-chat-refresh').addEventListener('click', refreshChat);
 
   // Send message
   el('chat-form').addEventListener('submit', handleSend);
@@ -317,6 +316,21 @@ function scrollChatToBottom() {
   el_.scrollTop = el_.scrollHeight;
 }
 
+async function refreshChat() {
+  if (!state.activeConvo) return;
+  const activeParticipants = [...state.activeConvo.participants].sort();
+  const activeGroupName = state.activeConvo.group_name;
+  await loadConversations();
+  const refreshed = state.conversations.find(c =>
+    c.group_name === activeGroupName &&
+    [...c.participants].sort().join() === activeParticipants.join()
+  );
+  if (refreshed) {
+    state.activeConvo = refreshed;
+    renderMessages(refreshed.messages);
+  }
+}
+
 // ─── Contacts ─────────────────────────────────────────────────────────────────
 
 async function loadContacts() {
@@ -462,8 +476,8 @@ function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('roundchat-theme', theme);
   const isDark = theme === 'dark';
-  el('theme-icon').textContent = isDark ? '☀️' : '🌙';
-  el('theme-label').textContent = isDark ? 'Light' : 'Dark';
+  el('settings-theme-icon').textContent = isDark ? '☀️' : '🌙';
+  el('settings-theme-label').textContent = isDark ? 'Light mode' : 'Dark mode';
 }
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────

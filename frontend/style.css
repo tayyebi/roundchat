@@ -10,6 +10,7 @@
 }
 
 :root {
+  color-scheme: light;
   --blue:      #007AFF;
   --blue-dark: #005ec9;
   --bg:        #F2F2F7;
@@ -28,6 +29,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg:        #000000;
   --surface:   #1C1C1E;
   --border:    #38383A;
@@ -43,10 +45,6 @@ html {
 
 html, body {
   transition: color .3s, background-color .3s;
-}
-
-[data-theme="dark"] .login-card {
-  box-shadow: 0 4px 40px rgba(0,0,0,.4);
 }
 
 [data-theme="dark"] .convo-row:hover {
@@ -70,6 +68,10 @@ html, body {
 }
 
 [data-theme="dark"] .file-actions button:hover {
+  background: rgba(255,59,48,.2);
+}
+
+[data-theme="dark"] .settings-signout-btn:hover {
   background: rgba(255,59,48,.2);
 }
 
@@ -105,13 +107,22 @@ html, body {
 .login-card {
   width: 100%;
   max-width: 400px;
-  background: var(--surface);
+  background: rgba(255,255,255,0.78);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border-radius: 20px;
   padding: 40px 32px 32px;
   box-shadow: 0 4px 40px rgba(0,0,0,.08);
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+[data-theme="dark"] .login-card {
+  background: rgba(28,28,30,0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 4px 40px rgba(0,0,0,.4);
 }
 
 .brand {
@@ -248,10 +259,20 @@ html, body {
 
 .tab-bar {
   display: flex;
-  border-top: 1px solid var(--border);
-  background: var(--surface);
+  margin: 0 12px 12px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.78);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 2px 24px rgba(0,0,0,0.06);
   height: var(--nav-h);
   flex-shrink: 0;
+  border: none;
+}
+
+[data-theme="dark"] .tab-bar {
+  background: rgba(28,28,30,0.82);
+  box-shadow: 0 2px 24px rgba(0,0,0,0.3);
 }
 
 .tab {
@@ -281,8 +302,7 @@ html, body {
 .tab-icon { font-size: 20px; line-height: 1; }
 .tab-label { font-size: 10px; font-weight: 500; }
 
-.tab-signout { color: var(--red); }
-.tab-signout:hover { color: #c0392b; }
+/* .tab-signout removed — signout moved to settings pane */
 
 /* ── Panes ────────────────────────────────────────────────────────────────────── */
 
@@ -303,9 +323,14 @@ html, body {
   justify-content: space-between;
   padding: 0 16px;
   height: var(--header-h);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.78);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   flex-shrink: 0;
+}
+
+[data-theme="dark"] .pane-header {
+  background: rgba(28,28,30,0.85);
 }
 
 .pane-header h2 {
@@ -334,7 +359,6 @@ html, body {
   gap: 12px;
   padding: 12px 16px;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background .1s;
 }
@@ -422,7 +446,6 @@ html, body {
   gap: 12px;
   padding: 12px 16px;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
 }
 
 .contact-info .contact-name {
@@ -449,7 +472,6 @@ html, body {
   gap: 12px;
   padding: 12px 16px;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
 }
 
 .file-icon {
@@ -517,9 +539,14 @@ html, body {
   gap: 8px;
   height: var(--header-h);
   padding: 0 12px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.78);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   flex-shrink: 0;
+}
+
+[data-theme="dark"] .chat-header {
+  background: rgba(28,28,30,0.85);
 }
 
 .chat-title-text {
@@ -584,16 +611,48 @@ html, body {
   margin-top: 3px;
 }
 
+/* ── Settings pane ──────────────────────────────────────────────────────────────── */
+
+.settings-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 16px;
+  align-items: stretch;
+}
+
+.settings-theme-btn {
+  justify-content: flex-start;
+  gap: 12px;
+  font-size: 16px;
+}
+
+.settings-signout-btn {
+  justify-content: center;
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.settings-signout-btn:hover {
+  background: rgba(255,59,48,.1);
+}
+
 /* ── Chat input ───────────────────────────────────────────────────────────────── */
 
 .chat-input-row {
   display: flex;
   gap: 8px;
   padding: 10px 12px;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
+  background: rgba(255,255,255,0.78);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   align-items: center;
   flex-shrink: 0;
+}
+
+[data-theme="dark"] .chat-input-row {
+  background: rgba(28,28,30,0.85);
 }
 
 .chat-field {
@@ -621,15 +680,17 @@ html, body {
 
   .tab-bar {
     flex-direction: column;
-    width: 80px;
-    height: 100%;
-    border-top: none;
-    border-right: 1px solid var(--border);
+    width: 76px;
+    height: auto;
+    margin: 12px 0 12px 12px;
+    border-radius: 20px;
+    padding: 8px 0;
+    border: none;
+    gap: 4px;
+    align-self: center;
   }
 
-  .tab { height: 72px; width: 80px; }
-
-  .tab-signout { margin-top: auto; }
+  .tab { height: 60px; width: 76px; }
 
   .pane { display: flex; flex: 1; }
 
@@ -637,7 +698,7 @@ html, body {
 
   .overlay {
     position: absolute;
-    left: 80px;
+    left: 88px;
     right: 0;
     top: 0;
     bottom: 0;

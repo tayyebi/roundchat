@@ -54,13 +54,9 @@
       <span class="tab-icon">📁</span>
       <span class="tab-label">Files</span>
     </button>
-    <button id="btn-theme" class="tab tab-theme" title="Toggle dark mode">
-      <span class="tab-icon" id="theme-icon">🌙</span>
-      <span class="tab-label" id="theme-label">Dark</span>
-    </button>
-    <button id="btn-signout" class="tab tab-signout">
-      <span class="tab-icon">↩</span>
-      <span class="tab-label">Sign out</span>
+    <button class="tab" data-pane="pane-settings">
+      <span class="tab-icon">⚙️</span>
+      <span class="tab-label">Settings</span>
     </button>
   </nav>
 
@@ -99,6 +95,22 @@
     </div>
   </div>
 
+  <!-- Pane: Settings -->
+  <div id="pane-settings" class="pane">
+    <div class="pane-header">
+      <h2>Settings</h2>
+    </div>
+    <div class="settings-content">
+      <button id="btn-settings-theme" class="btn btn-outline settings-theme-btn">
+        <span id="settings-theme-icon">🌙</span>
+        <span id="settings-theme-label">Dark mode</span>
+      </button>
+      <button id="btn-settings-signout" class="btn btn-outline settings-signout-btn">
+        ↩ Sign out
+      </button>
+    </div>
+  </div>
+
 </div><!-- /view-main -->
 
 <!-- ═══════════════════════════════════════════════════
@@ -108,6 +120,7 @@
   <div class="chat-header">
     <button id="btn-back" class="icon-btn back-btn">←</button>
     <span id="chat-title" class="chat-title-text"></span>
+    <button id="btn-chat-refresh" class="icon-btn" title="Refresh">⟳</button>
   </div>
   <div id="chat-messages" class="chat-messages"></div>
   <form id="chat-form" class="chat-input-row">
