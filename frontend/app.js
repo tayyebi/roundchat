@@ -651,38 +651,22 @@ function showError(errorEl, msg) {
   errorEl.classList.remove('hidden');
 }
 
-function showModal(title, message) {
-  return new Promise(resolve => {
-    const modal = document.getElementById('modal');
-    const modalTitle = document.getElementById('modal-title');
-    const modalMessage = document.getElementById('modal-message');
-    const modalOk = document.getElementById('modal-ok');
+// ── Modal ───────────────────────────────────────────────────────────────────────
 
-    modalTitle.textContent = title;
-    modalMessage.textContent = message;
-    modal.classList.remove('hidden');
-
-    const handler = () => {
-      modal.classList.add('hidden');
-      modalOk.removeEventListener('click', handler);
+function showConfirm(title, message) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-message').textContent = message;
+  const okBtn = document.getElementById('modal-ok');
+  return new Promise((resolve) => {
+    okBtn.textContent = 'OK';
+    okBtn.onclick = () => {
+      document.getElementById('modal').classList.add('hidden');
       resolve(true);
     };
-
-    modalOk.addEventListener('click', handler);
-
-    // Also allow dismissing with Escape key
-    const escHandler = (e) => {
-      if (e.key === 'Escape') {
-        modal.classList.add('hidden');
-        modalOk.removeEventListener('click', handler);
-        document.removeEventListener('keydown', escHandler);
-        resolve(false);
-      }
-    };
-    document.addEventListener('keydown', escHandler);
+    document.getElementById('modal').classList.remove('hidden');
   });
 }
 
-function showAlert(message) {
-  return showModal('Notification', message);
+function showAlert(msg) {
+  return showConfirm('Alert', msg);
 }

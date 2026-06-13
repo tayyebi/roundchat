@@ -128,11 +128,10 @@
   </form>
 </div>
 
-<!-- Alert Modal -->
-<div id="modal" class="modal hidden" aria-hidden="true">
-  <div class="modal-overlay" onclick="document.getElementById('modal').classList.add('hidden')"></div>
-  <div class="modal-content" role="alertdialog" aria-modal="true" aria-labelledby="modal-title">
-  <h3 id="modal-title">Notice</h3>
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-overlay"></div>
+  <div class="modal-content">
+    <h3 id="modal-title">Notice</h3>
     <p id="modal-message"></p>
     <div class="modal-actions">
       <button id="modal-ok" class="btn btn-primary" type="button">OK</button>
