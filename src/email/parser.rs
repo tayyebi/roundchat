@@ -158,32 +158,37 @@ fn extract_first_address(raw: &str) -> String {
 /// Extract plain text recursively so common multipart/alternative and mixed
 /// messages do not lose their body merely because of another nesting level.
 fn extract_body(parsed: &ParsedMail) -> String {
+    let plain = extract_text(parsed, true);
+    if plain.is_empty() {
+        extract_text(parsed, false)
+    } else {
+        plain
+    }
+}
+
+fn extract_text(parsed: &ParsedMail, plain_only: bool) -> String {
     if parsed.subparts.is_empty() {
-        return parsed.get_body().unwrap_or_else(|e| {
-            tracing::warn!("Failed to decode email body: {e}");
+        let content_type = parsed.ctype.mimetype.to_lowercase();
+        let accepted = if plain_only {
+            content_type == "text/plain"
+        } else {
+            content_type.starts_with("text/")
+        };
+        if !accepted {
+            return String::new();
+        }
+        return parsed.get_body().unwrap_or_else(|error| {
+            tracing::warn!("Failed to decode email body: {error}");
             String::new()
         });
     }
 
     for part in &parsed.subparts {
-        let content_type = part.ctype.mimetype.to_lowercase();
-        if content_type == "text/plain" {
-            let body = extract_body(part);
-            if !body.is_empty() {
-                return body;
-            }
+        let body = extract_text(part, plain_only);
+        if !body.is_empty() {
+            return body;
         }
     }
-
-    for part in &parsed.subparts {
-        if part.ctype.mimetype.to_lowercase().starts_with("text/") {
-            let body = extract_body(part);
-            if !body.is_empty() {
-                return body;
-            }
-        }
-    }
-
     String::new()
 }
 
