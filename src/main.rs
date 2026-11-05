@@ -11,11 +11,12 @@ mod dav;
 mod email;
 mod models;
 mod state;
+mod storage;
+mod sync;
 
 use anyhow::Result;
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::TcpListener;
-use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::AppConfig;
@@ -32,6 +33,7 @@ fn print_help() {
     println!("  IMAP_HOST           IMAP server hostname (preferred over POP3)");
     println!("  IMAP_PORT           IMAP port (default: 993)");
     println!("  IMAP_TLS            Enable TLS for IMAP (default: true)");
+    println!("  IMAP_SENT_FOLDER    Optional folder for outgoing copies (e.g. Sent)");
     println!("  POP3_HOST           POP3 server hostname (used when IMAP_HOST is unset)");
     println!("  POP3_PORT           POP3 port (default: 995)");
     println!("  POP3_TLS            Enable TLS for POP3 (default: true)");
@@ -39,8 +41,10 @@ fn print_help() {
     println!("  SMTP_HOST           SMTP server hostname (default: localhost)");
     println!("  SMTP_PORT           SMTP port (default: 465)");
     println!("  SMTP_TLS            Enable TLS for SMTP (default: true)");
+    println!("  SMTP_TLS_INSECURE   Skip SMTP certificate verification (default: false)");
     println!("  CARDDAV_URL         CardDAV address book URL ({{email}} placeholder)");
     println!("  WEBDAV_URL          WebDAV file storage URL ({{email}} placeholder)");
+    println!("  ROUNDCHAT_DATA      Durable message cache directory (default: /data/roundchat)");
     println!("  ROUNDCHAT_HOST      Bind IP address for the HTTP server (default: 127.0.0.1)");
     println!("  ROUNDCHAT_PORT      Local HTTP server port (default: 7979)");
     println!();
@@ -89,25 +93,16 @@ async fn run_serve() -> Result<()> {
 
     let state = AppState::new(config);
 
-    // Restore persisted session from disk (survives deploys/restarts).
-    let session_path = std::path::PathBuf::from(&state.config.data_dir).join("session.json");
-    if let Ok(json) = std::fs::read_to_string(&session_path) {
-        if let Ok(session) = serde_json::from_str::<crate::models::Session>(&json) {
-            tracing::info!("Restored session for {}", session.email);
-            state.inner.write().await.session = Some(session);
-        }
-    }
+    // Version 0.1 stored the mailbox password in this file. Browser tokens
+    // now live only in memory, so a restart requires a fresh login instead.
+    storage::remove_legacy_password_file(&state.config.data_dir);
 
     // Start background refresh task.
     spawn_refresh_task(state.clone());
 
-    // Build router.
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    let app = api::router(state).layer(cors);
+    // The embedded frontend and API are same-origin. No permissive CORS layer
+    // is installed; every API also requires an HttpOnly browser session.
+    let app = api::router(state);
 
     let addr = SocketAddr::from((host, port));
     let listener = TcpListener::bind(addr).await?;
@@ -159,7 +154,7 @@ fn spawn_imap_idle_task(state: AppState) {
             let session = loop {
                 let s = {
                     let inner = state.inner.read().await;
-                    inner.session.clone()
+                    inner.account.clone()
                 };
                 match s {
                     Some(s) => break s,
@@ -211,7 +206,14 @@ fn spawn_imap_idle_task(state: AppState) {
             }
 
             // Check whether the user is still logged in before reconnecting.
-            let still_logged_in = state.inner.read().await.session.is_some();
+            let still_logged_in = state
+                .inner
+                .read()
+                .await
+                .account
+                .as_ref()
+                .map(|account| account.email == session.email)
+                .unwrap_or(false);
             if !still_logged_in {
                 continue; // will wait for login again at top of outer loop
             }
@@ -239,7 +241,7 @@ fn spawn_polling_task(state: AppState) {
 
             let session = {
                 let inner = state.inner.read().await;
-                inner.session.clone()
+                inner.account.clone()
             };
 
             if let Some(session) = session {
@@ -249,20 +251,23 @@ fn spawn_polling_task(state: AppState) {
     });
 }
 
-/// Fetch conversations and broadcast an SSE refresh event.
-async fn refresh_conversations(state: &AppState, email: &str, password: &str) {
-    match crate::email::mail_service::fetch_conversations(&state.config, email, password).await {
-        Ok(convos) => {
-            let mut inner = state.inner.write().await;
-            inner.conversations = convos;
-            state
-                .events
-                .send(crate::state::AppEvent::ConversationsUpdated)
-                .ok();
-        }
-        Err(e) => {
-            tracing::warn!("Conversation refresh failed: {e}");
-        }
+/// Refresh only if the callback still belongs to the active mailbox. This
+/// prevents an expiring IDLE connection from writing into a later login.
+async fn refresh_conversations(state: &AppState, email: &str, _password: &str) {
+    let is_active = state
+        .inner
+        .read()
+        .await
+        .account
+        .as_ref()
+        .map(|account| account.email == email)
+        .unwrap_or(false);
+    if !is_active {
+        return;
+    }
+
+    if let Err(error) = crate::sync::refresh_conversations(state, email, true).await {
+        tracing::warn!("Conversation refresh failed: {error}");
     }
 }
 

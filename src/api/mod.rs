@@ -27,7 +27,7 @@ pub fn router(state: AppState) -> Router {
         // Conversations
         .route("/api/conversations", get(conversations::list))
         .route("/api/send", post(conversations::send))
-        .route("/api/mark-read/:uid", post(conversations::mark_read))
+        .route("/api/mark-read", post(conversations::mark_read))
         // Contacts
         .route("/api/contacts", get(contacts::list))
         // Files

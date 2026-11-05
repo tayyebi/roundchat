@@ -4,6 +4,9 @@
 # Environment variables (contains credentials)
 .env
 
+# Local message cache
+/data/
+
 # Editor / OS files
 .DS_Store
 .idea/

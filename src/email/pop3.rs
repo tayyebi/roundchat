@@ -5,7 +5,6 @@
 
 use anyhow::{anyhow, Context, Result};
 use native_tls::{TlsConnector, TlsStream};
-use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use crate::config::Pop3Config;
@@ -97,12 +96,27 @@ fn connect(config: &Pop3Config, email: &str, password: &str) -> Result<Pop3Strea
     Ok(stream)
 }
 
+/// Authenticate without retrieving every message.
+pub async fn verify_credentials(
+    config: Pop3Config,
+    email: String,
+    password: String,
+) -> Result<()> {
+    tokio::task::spawn_blocking(move || {
+        let mut stream = connect(&config, &email, &password)?;
+        stream.write_all(b"QUIT\r\n")?;
+        Ok(())
+    })
+    .await
+    .context("POP3 authentication task panicked")?
+}
+
 /// Fetch all messages via POP3.
 pub async fn fetch_messages(
     config: Pop3Config,
     email: String,
     password: String,
-) -> Result<(Vec<Message>, HashMap<String, String>)> {
+) -> Result<Vec<Message>> {
     tokio::task::spawn_blocking(move || {
         let mut stream = connect(&config, &email, &password)?;
 
@@ -113,10 +127,9 @@ pub async fn fetch_messages(
             return Err(anyhow!("POP3 STAT failed: {}", stat));
         }
         let parts: Vec<&str> = stat.split_whitespace().collect();
-        let count: usize = parts.get(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+        let count: u32 = parts.get(1).and_then(|v| v.parse().ok()).unwrap_or(0);
 
         let mut messages = Vec::new();
-        let subject_map = HashMap::new(); // POP3 has no server-side threading
 
         for i in 1..=count {
             stream.write_all(format!("RETR {i}\r\n").as_bytes())?;
@@ -127,8 +140,12 @@ pub async fn fetch_messages(
             }
             match stream.read_multiline() {
                 Ok(raw) => {
-                    match parse_raw_message(&raw, &i.to_string()) {
-                        Ok(msg) => messages.push(msg),
+                    match parse_raw_message(raw.as_bytes(), &format!("pop3:{i}")) {
+                        Ok(mut msg) => {
+                            msg.uid = Some(i);
+                            msg.source = "pop3".to_string();
+                            messages.push(msg);
+                        }
                         Err(e) => tracing::warn!("POP3 parse msg {i}: {e}"),
                     }
                 }
@@ -139,7 +156,7 @@ pub async fn fetch_messages(
         // QUIT
         stream.write_all(b"QUIT\r\n").ok();
 
-        Ok((messages, subject_map))
+        Ok(messages)
     })
     .await
     .context("spawn_blocking panicked")?

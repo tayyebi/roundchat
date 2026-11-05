@@ -20,6 +20,9 @@ const state = {
   attachments: [],      // RemoteFile[] pending for current message
   attachGridChunk: 20,  // lazy-load chunk size
   eventSource: null,    // EventSource | null
+  refreshTimer: null,   // Debounce SSE refreshes
+  refreshQueued: false,
+  loadingConversations: false,
 };
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
@@ -48,6 +51,9 @@ const api = {
     };
     if (body !== undefined) opts.body = JSON.stringify(body);
     const resp = await fetch(path, opts);
+    if (resp.status === 401 && path !== '/api/login') {
+      handleSessionExpired();
+    }
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ error: resp.statusText }));
       throw new Error(err.error || resp.statusText);
@@ -60,10 +66,8 @@ const api = {
   login(email, pw)      { return this.request('POST', '/api/login',   { email, password: pw }); },
   logout()              { return this.request('POST', '/api/logout'); },
   getConversations()    { return this.request('GET',  '/api/conversations'); },
-  sendMessage(to, body, group_name) {
-    return this.request('POST', '/api/send', { to, body, group_name: group_name || null });
-  },
-  markRead(uid)         { return this.request('POST', `/api/mark-read/${uid}`); },
+  sendMessage(message)  { return this.request('POST', '/api/send', message); },
+  markRead(uids)        { return this.request('POST', '/api/mark-read', { uids }); },
   getContacts()         { return this.request('GET',  '/api/contacts'); },
   getFiles()            { return this.request('GET',  '/api/files'); },
   deleteFile(url)       { return this.request('DELETE', '/api/files', { url }); },
@@ -83,8 +87,11 @@ function bindStaticEvents() {
     btn.addEventListener('click', () => switchPane(btn.dataset.pane));
   });
 
-  // Refresh buttons
+  // Refresh and compose buttons
   el('btn-refresh').addEventListener('click', () => loadConversations());
+  el('btn-new-chat').addEventListener('click', openNewChat);
+  el('btn-cancel-new-chat').addEventListener('click', closeNewChat);
+  el('new-chat-form').addEventListener('submit', handleNewChat);
   el('btn-refresh-contacts').addEventListener('click', () => loadContacts());
   // Settings
   el('btn-settings-theme').addEventListener('click', toggleTheme);
@@ -144,6 +151,10 @@ async function handleSignOut() {
   state.contacts = [];
   state.files = [];
   state.attachments = [];
+  state.activeConvo = null;
+  state.refreshQueued = false;
+  if (state.refreshTimer) clearTimeout(state.refreshTimer);
+  state.refreshTimer = null;
   el('conversations-list').innerHTML = '<div class="placeholder">Loading…</div>';
   el('contacts-list').innerHTML     = '<div class="placeholder">Loading…</div>';
   showLogin();
@@ -154,6 +165,15 @@ async function handleSignOut() {
 function showLogin() {
   el('view-login').classList.add('active');
   el('view-main').classList.remove('active');
+}
+
+function handleSessionExpired() {
+  disconnectSSE();
+  state.session = null;
+  state.activeConvo = null;
+  closeChat();
+  closeNewChat();
+  showLogin();
 }
 
 function showMain() {
@@ -174,15 +194,43 @@ function switchPane(paneId) {
 
 // ─── Conversations ────────────────────────────────────────────────────────────
 
-async function loadConversations() {
-  setListContent('conversations-list', '<div class="placeholder">Loading…</div>');
+async function loadConversations({ silent = false } = {}) {
+  if (state.loadingConversations) {
+    state.refreshQueued = true;
+    return;
+  }
+  state.loadingConversations = true;
+  state.refreshQueued = false;
+  if (!silent) {
+    setListContent('conversations-list', '<div class="placeholder">Loading…</div>');
+  }
+
   try {
     const convos = await api.getConversations();
     state.conversations = convos || [];
     renderConversations();
+
+    if (state.activeConvo && state.activeConvo.id) {
+      const refreshed = state.conversations.find(c => c.id === state.activeConvo.id);
+      if (refreshed) {
+        state.activeConvo = refreshed;
+        renderMessages(refreshed.messages);
+        markConversationRead(refreshed);
+      }
+    }
   } catch (err) {
-    setListContent('conversations-list',
-      `<div class="placeholder error-msg">${esc(err.message)}</div>`);
+    if (!silent) {
+      setListContent('conversations-list',
+        `<div class="placeholder error-msg">${esc(err.message)}</div>`);
+    } else {
+      console.warn('Background conversation refresh failed:', err);
+    }
+  } finally {
+    state.loadingConversations = false;
+    if (state.refreshQueued) {
+      state.refreshQueued = false;
+      setTimeout(() => loadConversations({ silent: true }), 50);
+    }
   }
 }
 
@@ -226,6 +274,9 @@ function conversationRowHTML(convo) {
 
 function openChat(convo) {
   state.activeConvo = convo;
+  state.attachments = [];
+  renderAttachChips();
+  closeAttachPicker();
   const myEmail = (state.session && state.session.email) || '';
   const others  = convo.participants.filter(p => p !== myEmail);
   el('chat-title').textContent = convo.group_name || others.join(', ') || 'Chat';
@@ -233,6 +284,24 @@ function openChat(convo) {
   el('chat-overlay').classList.remove('hidden');
   el('chat-input').focus();
   scrollChatToBottom();
+  markConversationRead(convo);
+}
+
+function markConversationRead(convo) {
+  const myEmail = (state.session && state.session.email) || '';
+  const unread = convo.messages.filter(message =>
+    !message.read && message.from !== myEmail && Number.isInteger(message.uid)
+  );
+  if (unread.length === 0) return;
+
+  const uids = unread.map(message => message.uid);
+  unread.forEach(message => { message.read = true; });
+  convo.unread_count = 0;
+  renderConversations();
+  api.markRead(uids).catch(err => {
+    console.warn('Could not update read state:', err);
+    loadConversations({ silent: true });
+  });
 }
 
 function closeChat() {
@@ -290,39 +359,40 @@ async function handleSend(e) {
     return;
   }
 
-  const attachRefs = (state.attachments || []).map(f =>
-    `📎 ${f.name} (${f.url})`
-  ).join('\n');
-  const fullBody = attachRefs ? (text ? attachRefs + '\n\n' + text : attachRefs) : text;
-
-  input.value   = '';
+  const attachments = (state.attachments || []).map(file => ({
+    url: file.url,
+    mime_type: file.mime_type,
+    filename: file.name,
+    size: file.size || 0,
+  }));
+  const sendButton = document.querySelector('#chat-form button[type="submit"]');
   input.disabled = true;
+  sendButton.disabled = true;
 
   try {
-    await api.sendMessage(to, fullBody, convo.group_name);
-    const optimistic = {
-      id: `local-${Date.now()}`,
-      from: myEmail,
+    const saved = await api.sendMessage({
       to,
-      date: new Date().toISOString(),
-      body: fullBody,
-      attachments: (state.attachments || []).map(f => ({
-        url: f.url,
-        mime_type: f.mime_type,
-        filename: f.name,
-        size: 0,
-      })),
-      read: true,
-    };
-    convo.messages.push(optimistic);
-    renderMessages(convo.messages);
+      body: text,
+      group_name: convo.group_name || null,
+      conversation_id: convo.id || null,
+      attachments,
+    });
+    input.value = '';
     state.attachments = [];
+    state.activeConvo = saved;
+    const index = state.conversations.findIndex(item => item.id === saved.id);
+    if (index >= 0) state.conversations[index] = saved;
+    else state.conversations.push(saved);
+    renderConversations();
+    renderMessages(saved.messages);
     renderAttachChips();
     closeAttachPicker();
+    loadConversations({ silent: true });
   } catch (err) {
     showAlert('Could not send message: ' + err.message);
   } finally {
     input.disabled = false;
+    sendButton.disabled = false;
     input.focus();
   }
 }
@@ -334,17 +404,76 @@ function scrollChatToBottom() {
 
 async function refreshChat() {
   if (!state.activeConvo) return;
-  const activeParticipants = [...state.activeConvo.participants].sort();
-  const activeGroupName = state.activeConvo.group_name;
-  await loadConversations();
-  const refreshed = state.conversations.find(c =>
-    c.group_name === activeGroupName &&
-    [...c.participants].sort().join() === activeParticipants.join()
+  await loadConversations({ silent: true });
+}
+
+// ─── New chats ────────────────────────────────────────────────────────────────
+
+function openNewChat() {
+  el('new-chat-recipients').value = '';
+  el('new-chat-group').value = '';
+  el('new-chat-error').classList.add('hidden');
+  el('new-chat-modal').classList.remove('hidden');
+  el('new-chat-recipients').focus();
+}
+
+function closeNewChat() {
+  el('new-chat-modal').classList.add('hidden');
+}
+
+function parseRecipients(value) {
+  return [...new Set(value
+    .split(/[\s,;]+/)
+    .map(address => address.trim().toLowerCase())
+    .filter(Boolean))];
+}
+
+function draftConversation(recipients, groupName) {
+  const myEmail = (state.session && state.session.email) || '';
+  const participants = [...new Set([myEmail, ...recipients])].sort();
+  const existing = state.conversations.find(conversation =>
+    conversation.group_name === groupName &&
+    [...conversation.participants].sort().join(',') === participants.join(',')
   );
-  if (refreshed) {
-    state.activeConvo = refreshed;
-    renderMessages(refreshed.messages);
+  if (existing) return existing;
+
+  return {
+    id: null,
+    group_name: groupName,
+    subject: groupName,
+    participants,
+    messages: [],
+    last_message: null,
+    unread_count: 0,
+  };
+}
+
+function handleNewChat(event) {
+  event.preventDefault();
+  const myEmail = (state.session && state.session.email) || '';
+  const recipients = parseRecipients(el('new-chat-recipients').value)
+    .filter(address => address !== myEmail);
+  const error = el('new-chat-error');
+
+  if (recipients.length === 0) {
+    showError(error, 'Enter at least one other email address.');
+    return;
   }
+  if (recipients.some(address => !/^[^\s@]+@[^\s@]+$/.test(address))) {
+    showError(error, 'One of the email addresses is invalid.');
+    return;
+  }
+
+  const groupName = recipients.length > 1
+    ? (el('new-chat-group').value.trim() || 'RoundChat group')
+    : null;
+  closeNewChat();
+  openChat(draftConversation(recipients, groupName));
+}
+
+function startDirectChat(email) {
+  const recipients = [email.toLowerCase()];
+  openChat(draftConversation(recipients, null));
 }
 
 // ─── Contacts ─────────────────────────────────────────────────────────────────
@@ -368,13 +497,20 @@ function renderContacts() {
     return;
   }
   list.innerHTML = state.contacts.map(c => `
-    <div class="contact-row">
+    <div class="contact-row" role="button" tabindex="0" title="Chat with ${esc(c.display_name)}">
       <div class="avatar" style="background:${avatarColor(c.display_name)}">${avatarInitials(c.display_name)}</div>
       <div class="contact-info">
         <div class="contact-name">${esc(c.display_name)}</div>
         <div class="contact-email">${esc(c.email)}</div>
       </div>
     </div>`).join('');
+  list.querySelectorAll('.contact-row').forEach((row, index) => {
+    const open = () => startDirectChat(state.contacts[index].email);
+    row.addEventListener('click', open);
+    row.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') open();
+    });
+  });
 }
 
 // ─── Files / Attachment Picker ────────────────────────────────────────────────
@@ -441,7 +577,7 @@ async function openAttachPicker() {
   state.attachGridChunk = 20;
   await loadFiles();
   renderAttachGrid();
-  el('attach-grid').addEventListener('click', onAttachGridClick);
+  el('attach-grid').onclick = onAttachGridClick;
 }
 
 function closeAttachPicker() {
@@ -529,10 +665,15 @@ async function handleAttachUpload() {
 function connectSSE() {
   if (state.eventSource) return;
   const es = new EventSource('/api/events');
-  es.onerror = () => {
-    state.eventSource = null;
-    setTimeout(connectSSE, 5000);
-  };
+  es.addEventListener('refresh', () => {
+    if (state.refreshTimer) clearTimeout(state.refreshTimer);
+    state.refreshTimer = setTimeout(() => {
+      state.refreshTimer = null;
+      loadConversations({ silent: true });
+    }, 150);
+  });
+  // EventSource reconnects itself after transient network/server failures.
+  es.onerror = () => {};
   state.eventSource = es;
 }
 

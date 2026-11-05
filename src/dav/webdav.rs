@@ -2,7 +2,7 @@
 ///
 /// Lists, uploads, and deletes files on a WebDAV server.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use base64::Engine;
 use crate::models::RemoteFile;
 
@@ -87,10 +87,12 @@ fn parse_propfind(xml: &str, base_url: &str) -> Vec<RemoteFile> {
             .unwrap_or_else(|| "application/octet-stream".to_string());
         let last_modified = xml_value(block, "D:getlastmodified").unwrap_or_default();
 
-        let file_url = if href.starts_with("http") {
-            href
-        } else {
-            format!("{base_url}{href}")
+        let file_url = match url::Url::parse(base_url).and_then(|base| base.join(&href)) {
+            Ok(url) => url.to_string(),
+            Err(error) => {
+                tracing::warn!("Invalid WebDAV resource URL {href}: {error}");
+                continue;
+            }
         };
 
         files.push(RemoteFile {
@@ -152,15 +154,25 @@ pub async fn upload_file(
 
 /// Delete a file by its URL.
 pub async fn delete_file(
+    url_template: &str,
     url: &str,
     email: &str,
     password: &str,
 ) -> Result<()> {
+    let base = url::Url::parse(&build_url(url_template, email, ""))?;
+    let target = url::Url::parse(url)?;
+    let same_origin = base.scheme() == target.scheme()
+        && base.host_str() == target.host_str()
+        && base.port_or_known_default() == target.port_or_known_default();
+    if !same_origin || !target.path().starts_with(base.path()) {
+        bail!("refusing to send WebDAV credentials to an unrelated URL");
+    }
+
     let auth = auth_header(email, password);
     let client = reqwest::Client::new();
 
     let resp = client
-        .delete(url)
+        .delete(target)
         .header("Authorization", auth)
         .send()
         .await

@@ -1,159 +1,290 @@
 /// IMAP client.
 ///
-/// Connects to an IMAP server over TLS using async-imap + tokio-native-tls.
-/// Fetches messages, marks them as read, and drives an RFC 2177 IDLE loop
-/// so the caller is notified of new mail in real time with zero polling lag.
+/// Uses BODY.PEEK and cached UIDs so synchronization does not download every
+/// message body or implicitly mark mail as read. INBOX remains the only folder
+/// required by the chat-focused application.
+
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::pin::Pin;
+use std::task::{Context as TaskContext, Poll};
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use async_imap::Client;
 use async_imap::extensions::idle::IdleResponse;
 use futures::StreamExt;
-use std::collections::HashMap;
-use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_native_tls::TlsStream;
+
 use crate::config::ImapConfig;
 use crate::email::parser::parse_raw_message;
 use crate::models::Message;
 
-/// RFC 2177 recommends clients re-issue IDLE at least every 29 minutes.
-/// We use 28 minutes to give a small margin.
 const IDLE_REFRESH_SECS: u64 = 28 * 60;
+const UID_CHUNK_SIZE: usize = 200;
 
-type ImapSession = async_imap::Session<TlsStream<TcpStream>>;
+/// A single stream enum lets IMAP_TLS=false work without duplicating the
+/// entire client for plaintext and TLS sessions.
+enum ImapStream {
+    Plain(TcpStream),
+    Tls(TlsStream<TcpStream>),
+}
 
-/// Open an authenticated IMAP session over TLS.
-async fn open_session(
-    config: &ImapConfig,
-    email: &str,
-    password: &str,
-) -> Result<ImapSession> {
+impl fmt::Debug for ImapStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Plain(_) => "ImapStream::Plain",
+            Self::Tls(_) => "ImapStream::Tls",
+        })
+    }
+}
+
+impl AsyncRead for ImapStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match &mut *self {
+            Self::Plain(stream) => Pin::new(stream).poll_read(cx, buffer),
+            Self::Tls(stream) => Pin::new(stream).poll_read(cx, buffer),
+        }
+    }
+}
+
+impl AsyncWrite for ImapStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        buffer: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        match &mut *self {
+            Self::Plain(stream) => Pin::new(stream).poll_write(cx, buffer),
+            Self::Tls(stream) => Pin::new(stream).poll_write(cx, buffer),
+        }
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match &mut *self {
+            Self::Plain(stream) => Pin::new(stream).poll_flush(cx),
+            Self::Tls(stream) => Pin::new(stream).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match &mut *self {
+            Self::Plain(stream) => Pin::new(stream).poll_shutdown(cx),
+            Self::Tls(stream) => Pin::new(stream).poll_shutdown(cx),
+        }
+    }
+}
+
+type ImapSession = async_imap::Session<ImapStream>;
+
+#[derive(Debug, Default)]
+pub struct ImapUpdate {
+    pub uid_validity: Option<u32>,
+    pub present_uids: HashSet<u32>,
+    pub read_by_uid: HashMap<u32, bool>,
+    pub messages: Vec<Message>,
+}
+
+async fn open_session(config: &ImapConfig, email: &str, password: &str) -> Result<ImapSession> {
     let tcp = TcpStream::connect((config.host.as_str(), config.port))
         .await
         .context("IMAP TCP connect failed")?;
 
-    let mut builder = tokio_native_tls::native_tls::TlsConnector::builder();
-    if config.tls_insecure {
-        builder.danger_accept_invalid_certs(true);
-        builder.danger_accept_invalid_hostnames(true);
-    }
-    let native_cx = builder
-        .build()
-        .context("TLS connector build failed")?;
-    let cx = tokio_native_tls::TlsConnector::from(native_cx);
-    let tls = cx
-        .connect(config.host.as_str(), tcp)
-        .await
-        .context("IMAP TLS handshake failed")?;
+    let stream = if config.tls {
+        let mut builder = tokio_native_tls::native_tls::TlsConnector::builder();
+        if config.tls_insecure {
+            builder.danger_accept_invalid_certs(true);
+            builder.danger_accept_invalid_hostnames(true);
+        }
+        let native_context = builder.build().context("TLS connector build failed")?;
+        let context = tokio_native_tls::TlsConnector::from(native_context);
+        let tls = context
+            .connect(config.host.as_str(), tcp)
+            .await
+            .context("IMAP TLS handshake failed")?;
+        ImapStream::Tls(tls)
+    } else {
+        ImapStream::Plain(tcp)
+    };
 
-    let client = Client::new(tls);
-    let session = client
+    let client = Client::new(stream);
+    client
         .login(email, password)
         .await
-        .map_err(|(e, _)| anyhow!("IMAP login failed: {e}"))?;
-
-    Ok(session)
+        .map_err(|(error, _)| anyhow!("IMAP login failed: {error}"))
 }
 
-/// Fetch all messages from INBOX and return them with a subject map.
-pub async fn fetch_messages(
-    config: ImapConfig,
-    email: String,
-    password: String,
-) -> Result<(Vec<Message>, HashMap<String, String>)> {
-    let mut session = open_session(&config, &email, &password).await?;
-    session
+/// Authenticate without downloading the user's mailbox.
+pub async fn verify_credentials(config: &ImapConfig, email: &str, password: &str) -> Result<()> {
+    let session = open_session(config, email, password).await?;
+    let mut session = session;
+    session.logout().await.context("IMAP logout failed")?;
+    Ok(())
+}
+
+fn chunks(uids: &HashSet<u32>) -> Vec<Vec<u32>> {
+    let mut sorted: Vec<u32> = uids.iter().copied().collect();
+    sorted.sort_unstable();
+    sorted
+        .chunks(UID_CHUNK_SIZE)
+        .map(|chunk| chunk.to_vec())
+        .collect()
+}
+
+fn uid_list(uids: &[u32]) -> String {
+    uids.iter()
+        .map(u32::to_string)
+        .collect::<Vec<String>>()
+        .join(",")
+}
+
+/// Fetch flags for existing mail and bodies only for UIDs absent from the
+/// local cache. The caller reconciles deletions with `present_uids`.
+pub async fn sync_messages(
+    config: &ImapConfig,
+    email: &str,
+    password: &str,
+    cached_uids: &HashSet<u32>,
+    previous_uid_validity: Option<u32>,
+) -> Result<ImapUpdate> {
+    let mut session = open_session(config, email, password).await?;
+    let mailbox = session
         .select("INBOX")
         .await
         .context("IMAP SELECT INBOX failed")?;
-
-    let uid_set = session
+    let uid_validity = mailbox.uid_validity;
+    let present_uids = session
         .uid_search("ALL")
         .await
         .context("IMAP UID SEARCH failed")?;
+    let mut update = ImapUpdate {
+        uid_validity,
+        present_uids: present_uids.clone(),
+        ..ImapUpdate::default()
+    };
 
-    if uid_set.is_empty() {
+    if present_uids.is_empty() {
         session.logout().await.ok();
-        return Ok((vec![], HashMap::new()));
+        return Ok(update);
     }
 
-    // Build a comma-separated UID list.
-    let uid_list: Vec<String> = uid_set.iter().map(|u| u.to_string()).collect();
-    let uid_range = uid_list.join(",");
+    for chunk in chunks(&present_uids) {
+        let mut fetch_stream = session
+            .uid_fetch(uid_list(&chunk), "(UID FLAGS)")
+            .await
+            .context("IMAP UID FLAGS FETCH failed")?;
+        while let Some(fetch) = fetch_stream.next().await {
+            let fetch = fetch.context("IMAP FLAGS FETCH stream error")?;
+            if let Some(uid) = fetch.uid {
+                let read = fetch
+                    .flags()
+                    .any(|flag| matches!(flag, async_imap::types::Flag::Seen));
+                update.read_by_uid.insert(uid, read);
+            }
+        }
+        drop(fetch_stream);
+    }
 
-    let mut fetch_stream = session
-        .uid_fetch(&uid_range, "(RFC822 ENVELOPE FLAGS)")
-        .await
-        .context("IMAP UID FETCH failed")?;
+    let cache_is_valid = previous_uid_validity == uid_validity;
+    let new_uids: HashSet<u32> = if cache_is_valid {
+        present_uids
+            .difference(cached_uids)
+            .copied()
+            .collect::<HashSet<u32>>()
+    } else {
+        present_uids.clone()
+    };
 
-    let mut messages = Vec::new();
-    let mut subject_map = HashMap::new();
-
-    while let Some(fetch_result) = fetch_stream.next().await {
-        let fetch = fetch_result.context("IMAP FETCH stream error")?;
-        let uid = fetch.uid.map(|u| u.to_string()).unwrap_or_default();
-
-        if let Some(raw_bytes) = fetch.body() {
-            let raw = String::from_utf8_lossy(raw_bytes);
-            match parse_raw_message(&raw, &uid) {
-                Ok(mut msg) => {
-                    // Extract subject from envelope for group-name use.
-                    if let Some(env) = fetch.envelope() {
-                        if let Some(subj_bytes) = &env.subject {
-                            let subj = String::from_utf8_lossy(subj_bytes).to_string();
-                            let subj = decode_rfc2047(&subj);
-                            subject_map.insert(msg.id.clone(), subj);
-                        }
-                    }
-                    // Check \Seen flag.
-                    msg.read = fetch
-                        .flags()
-                        .any(|f| matches!(f, async_imap::types::Flag::Seen));
-                    messages.push(msg);
+    for chunk in chunks(&new_uids) {
+        let mut fetch_stream = session
+            .uid_fetch(uid_list(&chunk), "(UID BODY.PEEK[] FLAGS)")
+            .await
+            .context("IMAP UID BODY FETCH failed")?;
+        while let Some(fetch) = fetch_stream.next().await {
+            let fetch = fetch.context("IMAP BODY FETCH stream error")?;
+            let Some(uid) = fetch.uid else {
+                continue;
+            };
+            let Some(raw_bytes) = fetch.body() else {
+                tracing::warn!("IMAP message UID={uid} has no body");
+                continue;
+            };
+            match parse_raw_message(raw_bytes, &format!("imap:{uid}")) {
+                Ok(mut message) => {
+                    message.uid = Some(uid);
+                    message.source = "imap".to_string();
+                    message.read = fetch.flags().any(|flag| {
+                        matches!(flag, async_imap::types::Flag::Seen)
+                    });
+                    update.messages.push(message);
                 }
-                Err(e) => {
-                    tracing::warn!("Could not parse message UID={uid}: {e}");
+                Err(error) => {
+                    tracing::warn!("Could not parse message UID={uid}: {error}");
                 }
             }
         }
+        drop(fetch_stream);
     }
-    drop(fetch_stream);
 
     session.logout().await.ok();
-    Ok((messages, subject_map))
+    Ok(update)
 }
 
-/// Mark a message UID as \Seen.
+/// Mark a message UID as Seen.
 pub async fn mark_read(
-    config: ImapConfig,
-    email: String,
-    password: String,
-    uid: String,
+    config: &ImapConfig,
+    email: &str,
+    password: &str,
+    uids: &[u32],
 ) -> Result<()> {
-    let mut session = open_session(&config, &email, &password).await?;
+    if uids.is_empty() {
+        return Ok(());
+    }
+    let uid_set: HashSet<u32> = uids.iter().copied().collect();
+    let mut session = open_session(config, email, password).await?;
     session.select("INBOX").await.context("SELECT INBOX")?;
-    let mut store_stream = session
-        .uid_store(&uid, "+FLAGS (\\Seen)")
-        .await
-        .context("UID STORE failed")?;
-    while store_stream.next().await.is_some() {}
-    drop(store_stream);
+    for chunk in chunks(&uid_set) {
+        let mut store_stream = session
+            .uid_store(uid_list(&chunk), "+FLAGS (\\Seen)")
+            .await
+            .context("UID STORE failed")?;
+        while store_stream.next().await.is_some() {}
+        drop(store_stream);
+    }
     session.logout().await.ok();
     Ok(())
 }
 
-/// Run an RFC 2177 IMAP IDLE loop.
-///
-/// Keeps a persistent IMAP connection open.  The server pushes an unsolicited
-/// `EXISTS` or `RECENT` response the instant new mail arrives; we translate
-/// that into a call to `on_change` so the caller can re-fetch and push an SSE
-/// event to connected browser tabs.
-///
-/// To comply with RFC 2177 we re-issue `IDLE` every 28 minutes so the server
-/// never silently drops the connection due to inactivity.
-///
-/// This function runs until the connection fails, at which point it returns
-/// the error so the caller can reconnect and restart the loop.
+/// Append an outgoing RFC 5322 message to a configured Sent folder.
+pub async fn append_message(
+    config: &ImapConfig,
+    email: &str,
+    password: &str,
+    folder: &str,
+    raw: &[u8],
+) -> Result<()> {
+    let mut session = open_session(config, email, password).await?;
+    session
+        .append(folder, Some("(\\Seen)"), None, raw)
+        .await
+        .with_context(|| format!("IMAP APPEND to {folder} failed"))?;
+    session.logout().await.ok();
+    Ok(())
+}
+
+/// Run an RFC 2177 IMAP IDLE loop for INBOX.
 pub async fn idle_loop(
     config: &ImapConfig,
     email: &str,
@@ -167,57 +298,22 @@ pub async fn idle_loop(
         .context("IMAP SELECT INBOX failed")?;
 
     loop {
-        // Enter IDLE: `session.idle()` consumes the session and returns a Handle.
         let mut handle = session.idle();
         handle.init().await.context("IMAP IDLE init failed")?;
-
-        let (wait_fut, _stop) =
+        let (wait_future, _stop) =
             handle.wait_with_timeout(Duration::from_secs(IDLE_REFRESH_SECS));
-
-        let response = wait_fut.await.context("IMAP IDLE wait failed")?;
-
-        // Exit IDLE and recover the session so we can use it again.
+        let response = wait_future.await.context("IMAP IDLE wait failed")?;
         session = handle.done().await.context("IMAP IDLE done failed")?;
 
         match response {
-            IdleResponse::NewData(_) => {
-                // The server reported a mailbox change (new mail, flag update,
-                // expunge, etc.).  Notify the caller.
-                tracing::debug!("IMAP IDLE: new data from server");
-                on_change();
-            }
+            IdleResponse::NewData(_) => on_change(),
             IdleResponse::Timeout => {
-                // 28-minute timer fired — re-issue IDLE immediately.
                 tracing::debug!("IMAP IDLE: re-issuing IDLE (28-min refresh)");
             }
-            IdleResponse::ManualInterrupt => {
-                // The stop token was triggered — clean shutdown requested.
-                tracing::debug!("IMAP IDLE: manual interrupt, stopping");
-                break;
-            }
+            IdleResponse::ManualInterrupt => break,
         }
     }
 
     session.logout().await.ok();
     Ok(())
-}
-
-/// Decode a simple RFC 2047 encoded-word (best-effort, handles UTF-8/base64).
-fn decode_rfc2047(input: &str) -> String {
-    let re = regex::Regex::new(r"=\?([^?]+)\?([BbQq])\?([^?]*)\?=").unwrap();
-    re.replace_all(input, |caps: &regex::Captures| {
-        let encoding = caps[2].to_uppercase();
-        let text = &caps[3];
-        if encoding == "B" {
-            use base64::Engine;
-            if let Ok(bytes) =
-                base64::engine::general_purpose::STANDARD.decode(text)
-            {
-                return String::from_utf8_lossy(&bytes).to_string();
-            }
-            tracing::warn!("RFC 2047 B-encoding base64 decode failed for: {text}");
-        }
-        text.to_string()
-    })
-    .to_string()
 }
