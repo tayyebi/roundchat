@@ -125,9 +125,10 @@ pub fn build_conversations(messages: Vec<Message>, local_email: &str) -> Vec<Con
             explicit.clone()
         } else if let Some(referenced) = referenced_conversation {
             referenced
-        } else if group_name.is_some()
-            && (!message.references.is_empty() || message.in_reply_to.is_some())
-        {
+        } else if group_name.is_some() {
+            // Every message in an ordinary email thread uses the root
+            // Message-ID, including the root itself. This remains stable even
+            // when a reply is processed before the root is available.
             let root = message
                 .references
                 .first()
