@@ -58,10 +58,13 @@
 
   <!-- Pane: Chats -->
   <div id="pane-chats" class="pane active">
-    <div class="pane-header">
-      <h2>Chats</h2>
-      <button id="btn-refresh" class="icon-btn" title="Refresh">⟳</button>
+  <div class="pane-header">
+    <h2>Chats</h2>
+    <div class="header-actions">
+      <button id="btn-new-chat" class="icon-btn" title="New chat" aria-label="New chat">＋</button>
+      <button id="btn-refresh" class="icon-btn" title="Refresh" aria-label="Refresh">⟳</button>
     </div>
+  </div>
     <div id="conversations-list" class="scroll-list">
       <div class="placeholder">Loading…</div>
     </div>
@@ -125,6 +128,23 @@
     <input id="chat-input" type="text" class="chat-field"
            placeholder="Message…" autocomplete="off" />
     <button type="submit" class="btn btn-send">Send</button>
+  </form>
+</div>
+
+<div id="new-chat-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="new-chat-title">
+  <div class="modal-overlay"></div>
+  <form id="new-chat-form" class="modal-content">
+    <h3 id="new-chat-title">New chat</h3>
+    <p>Enter one email address for a direct chat, or separate multiple addresses with commas to create a group.</p>
+    <label class="field-label" for="new-chat-recipients">Recipients</label>
+    <input id="new-chat-recipients" class="field" type="text" placeholder="alice@example.com, bob@example.com" autocomplete="off" required />
+    <label class="field-label" for="new-chat-group">Group name <span class="optional-label">(optional)</span></label>
+    <input id="new-chat-group" class="field" type="text" placeholder="Weekend plans" autocomplete="off" maxlength="120" />
+    <p id="new-chat-error" class="error-msg hidden"></p>
+    <div class="modal-actions">
+      <button id="btn-cancel-new-chat" class="btn btn-outline" type="button">Cancel</button>
+      <button class="btn btn-primary" type="submit">Start chat</button>
+    </div>
   </form>
 </div>
 

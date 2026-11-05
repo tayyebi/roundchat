@@ -1,33 +1,19 @@
-/// Auth API handlers.
+/// Authentication API and per-browser session cookies.
 
 use axum::{
     extract::State,
-    http::StatusCode,
-    response::IntoResponse,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::email::mail_service;
+use crate::models::{MailCache, Session};
 use crate::state::AppState;
-use crate::models::Session;
+use crate::storage;
 
-fn session_path(state: &AppState) -> std::path::PathBuf {
-    std::path::PathBuf::from(&state.config.data_dir).join("session.json")
-}
-
-fn save_session(state: &AppState, session: &Session) {
-    let path = session_path(state);
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Ok(json) = serde_json::to_string(session) {
-        std::fs::write(&path, &json).ok();
-    }
-}
-
-fn delete_session(state: &AppState) {
-    let path = session_path(state);
-    std::fs::remove_file(&path).ok();
-}
+pub const SESSION_COOKIE: &str = "roundchat_session";
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -41,77 +27,151 @@ pub struct SessionResponse {
     pub logged_in: bool,
 }
 
-/// GET /api/session
-pub async fn get_session(State(state): State<AppState>) -> impl IntoResponse {
+fn token_from_headers(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::COOKIE)?
+        .to_str()
+        .ok()?
+        .split(';')
+        .filter_map(|cookie| cookie.trim().split_once('='))
+        .find(|(name, _)| *name == SESSION_COOKIE)
+        .map(|(_, value)| value)
+}
+
+/// Resolve a request to the active account only when its random browser token
+/// is still registered. No mailbox credentials are accepted by normal APIs.
+pub(crate) async fn authenticated_session(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Option<Session> {
+    let token = token_from_headers(headers)?;
     let inner = state.inner.read().await;
-    match &inner.session {
-        Some(s) => Json(SessionResponse {
-            email: s.email.clone(),
+    if !inner.client_tokens.contains(token) {
+        return None;
+    }
+    inner.account.clone()
+}
+
+fn logged_out() -> SessionResponse {
+    SessionResponse {
+        email: String::new(),
+        logged_in: false,
+    }
+}
+
+/// GET /api/session
+pub async fn get_session(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    match authenticated_session(&state, &headers).await {
+        Some(session) => Json(SessionResponse {
+            email: session.email,
             logged_in: true,
-        })
-        .into_response(),
-        None => Json(SessionResponse {
-            email: String::new(),
-            logged_in: false,
-        })
-        .into_response(),
+        }),
+        None => Json(logged_out()),
     }
 }
 
 /// POST /api/login
 pub async fn login(
     State(state): State<AppState>,
-    Json(req): Json<LoginRequest>,
-) -> impl IntoResponse {
-    let email = req.email.trim().to_lowercase();
-    let password = req.password.clone();
-
-    // Verify credentials by attempting to fetch via the configured protocol.
-    // We only do a lightweight check: connect and authenticate.
-    let config = state.config.clone();
-    let result = verify_credentials(&config, &email, &password).await;
-
-    match result {
-        Ok(()) => {
-            let session = Session {
-                email: email.clone(),
-                password,
-            };
-            save_session(&state, &session);
-            let mut inner = state.inner.write().await;
-            inner.session = Some(session);
-            (
-                StatusCode::OK,
-                Json(SessionResponse { email, logged_in: true }),
-            )
-                .into_response()
-        }
-        Err(e) => (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": e.to_string() })),
+    Json(request): Json<LoginRequest>,
+) -> Response {
+    let email = request.email.trim().to_lowercase();
+    if email.is_empty() || request.password.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "email and password are required" })),
         )
-            .into_response(),
+            .into_response();
     }
+
+    let _guard = state.sync_lock.lock().await;
+    {
+        let inner = state.inner.read().await;
+        if let Some(account) = &inner.account {
+            if account.email != email {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({
+                        "error": "another mailbox is active; sign it out before switching accounts"
+                    })),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    if let Err(error) = mail_service::verify_credentials(&state.config, &email, &request.password).await {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": error.to_string() })),
+        )
+            .into_response();
+    }
+
+    let existing_cache = state.inner.read().await.cache.clone();
+    let cache_path = storage::cache_path(&state.config.data_dir, &email);
+    let cache = if !existing_cache.messages.is_empty() {
+        existing_cache
+    } else if cache_path.exists() {
+        storage::load_mail_cache(&state.config.data_dir, &email).unwrap_or_else(|error| {
+            tracing::warn!("Could not restore chat cache: {error}");
+            MailCache::default()
+        })
+    } else {
+        MailCache::default()
+    };
+    let conversations = crate::email::conversation::build_conversations(
+        cache.messages.clone(),
+        &email,
+    );
+    let token = uuid::Uuid::new_v4().to_string();
+    {
+        let mut inner = state.inner.write().await;
+        inner.account = Some(Session {
+            email: email.clone(),
+            password: request.password,
+        });
+        inner.client_tokens.insert(token.clone());
+        inner.cache = cache;
+        inner.conversations = conversations;
+    }
+
+    let cookie = format!(
+        "{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400"
+    );
+    let mut response = (
+        StatusCode::OK,
+        Json(SessionResponse {
+            email,
+            logged_in: true,
+        }),
+    )
+        .into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&cookie).expect("generated session cookie is valid"),
+    );
+    response
 }
 
 /// POST /api/logout
-pub async fn logout(State(state): State<AppState>) -> impl IntoResponse {
-    delete_session(&state);
-    let mut inner = state.inner.write().await;
-    inner.session = None;
-    inner.conversations.clear();
-    StatusCode::OK
-}
+pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Some(token) = token_from_headers(&headers) {
+        let mut inner = state.inner.write().await;
+        inner.client_tokens.remove(token);
+        if inner.client_tokens.is_empty() {
+            inner.account = None;
+            inner.conversations.clear();
+            inner.cache = MailCache::default();
+        }
+    }
 
-/// Verify credentials by attempting to do a minimal mail-server auth check.
-async fn verify_credentials(
-    config: &crate::config::AppConfig,
-    email: &str,
-    password: &str,
-) -> anyhow::Result<()> {
-    use crate::email::mail_service::fetch_messages_raw;
-    // We attempt to fetch (and immediately discard) messages.  If auth fails
-    // the underlying library will return an error we surface to the user.
-    fetch_messages_raw(config, email, password).await?;
-    Ok(())
+    let mut response = StatusCode::OK.into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_static(
+            "roundchat_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
+        ),
+    );
+    response
 }

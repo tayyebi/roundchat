@@ -2,7 +2,7 @@
 
 **Your email inbox, reimagined as a modern messenger.**
 
-RoundChat is a desktop chat app that works directly with your existing email account — no new account to create, no proprietary server, no data stored anywhere except your own inbox. Open it in your browser and chat the way you already do, just with a familiar messenger interface.
+RoundChat is a chat app that works directly with your existing email account — no new account to create and no proprietary chat server. Open it in your browser and chat through ordinary email, with local durable history and a familiar messenger interface.
 
 ---
 
@@ -20,8 +20,9 @@ RoundChat is a desktop chat app that works directly with your existing email acc
 
 ## What you get
 
-- **💬 Conversations** — your email threads displayed as chat bubbles, grouped by contact or group
-- **✉️ Send & receive** — reply directly from the chat view; messages are real emails under the hood
+- **💬 Conversations** — stable email/RoundChat threads displayed as chat bubbles, grouped by contact or group
+- **✉️ Send & receive** — start direct or group chats and reply with interoperable email threading headers
+- **🕘 Persistent history** — incoming and outgoing messages are cached locally; IMAP downloads only new message bodies
 - **👤 Contacts** — browse your address book pulled from CardDAV
 - **📁 Files** — upload, download, and delete files stored on your WebDAV server
 - **🔔 Real-time updates** — new messages appear automatically without refreshing
@@ -162,9 +163,11 @@ Set `IMAP_TLS_INSECURE=true` in `.env` when the IMAP server uses a self-signed c
 
 ## Privacy & security
 
-- **No cloud, no accounts** — RoundChat runs entirely on your machine and talks directly to your own mail/DAV servers.
-- **No data leaves your control** — messages are your normal emails; contacts and files live on your own server.
-- **TLS on by default** — all connections to mail and DAV servers use TLS.
+- **No cloud, no accounts** — RoundChat runs on your machine and talks directly to your own mail/DAV servers.
+- **Local, durable chat cache** — message history is stored under `ROUNDCHAT_DATA`; the Docker Compose configuration uses a named volume.
+- **No persisted passwords** — mailbox credentials stay in memory and legacy plaintext session files are removed. Sign in again after a server restart.
+- **Per-browser sessions** — APIs require an HttpOnly, same-site session cookie; permissive cross-origin API access is not enabled.
+- **TLS verification on by default** — certificate and hostname verification is only disabled when an explicit `*_TLS_INSECURE` option is enabled.
 
 ---
 
@@ -203,6 +206,7 @@ GitHub Actions builds both targets on every push and uploads artifacts.
 | `IMAP_PORT` | IMAP port | `993` |
 | `IMAP_TLS` | Enable TLS | `true` |
 | `IMAP_TLS_INSECURE` | Skip TLS certificate verification (self-signed certs) | `false` |
+| `IMAP_SENT_FOLDER` | Optional IMAP folder for outgoing copies (for example `Sent`) | — |
 | `POP3_HOST` | POP3 server (used when `IMAP_HOST` is unset) | — |
 | `POP3_PORT` | POP3 port | `995` |
 | `POP3_TLS` | Enable TLS | `true` |
@@ -211,6 +215,8 @@ GitHub Actions builds both targets on every push and uploads artifacts.
 | `SMTP_HOST` | SMTP server hostname | `localhost` |
 | `SMTP_PORT` | SMTP port | `465` |
 | `SMTP_TLS` | Enable TLS | `true` |
+| `SMTP_TLS_INSECURE` | Skip SMTP certificate verification | `false` |
+| `ROUNDCHAT_DATA` | Durable local message cache directory | `/data/roundchat` |
 | `CARDDAV_URL` | CardDAV address book URL (`{email}` placeholder) | — |
 | `WEBDAV_URL` | WebDAV file storage URL (`{email}` placeholder) | — |
 | `ROUNDCHAT_PORT` | Local HTTP server port | `7979` |

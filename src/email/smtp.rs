@@ -1,14 +1,33 @@
 /// SMTP client.
 ///
-/// Uses the `lettre` crate (async, tokio runtime) to send outgoing messages.
-/// Each send opens a fresh connection so no persistent session is required.
+/// Outgoing chat messages are ordinary plain-text emails with standard
+/// threading headers plus a stable RoundChat conversation header.
 
 use anyhow::{bail, Context, Result};
-use lettre::message::{header::ContentType, Mailbox, SinglePart};
+use lettre::message::header::{ContentType, Header, HeaderName, HeaderValue};
+use lettre::message::{Mailbox, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+
 use crate::config::SmtpConfig;
+
+#[derive(Clone)]
+struct RoundChatConversationId(String);
+
+impl Header for RoundChatConversationId {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("X-RoundChat-Conversation-ID")
+    }
+
+    fn parse(value: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self(value.to_string()))
+    }
+
+    fn display(&self) -> HeaderValue {
+        HeaderValue::new(Self::name(), self.0.clone())
+    }
+}
 
 /// A message to be sent.
 pub struct OutboundMessage {
@@ -16,75 +35,96 @@ pub struct OutboundMessage {
     pub to: Vec<String>,
     pub subject: String,
     pub body: String,
+    pub message_id: String,
+    pub conversation_id: String,
+    pub in_reply_to: Option<String>,
+    pub references: Vec<String>,
 }
 
-/// Send `msg` via SMTP using `config` and the provided credentials.
+fn bracketed(id: &str) -> String {
+    format!("<{}>", id.trim().trim_matches(|ch| ch == '<' || ch == '>'))
+}
+
+/// Send `msg` and return its RFC 5322 representation so callers may optionally
+/// append it to an IMAP Sent folder.
 pub async fn send_message(
     config: &SmtpConfig,
     email: &str,
     password: &str,
     msg: OutboundMessage,
-) -> Result<()> {
+) -> Result<Vec<u8>> {
     let from: Mailbox = msg.from.parse().context("invalid From address")?;
     if msg.to.is_empty() {
         bail!("no recipients specified, cannot send email");
     }
-    let subject = if msg.subject.is_empty() {
-        "(no subject)".to_string()
+
+    let subject = if msg.subject.trim().is_empty() {
+        "RoundChat chat".to_string()
     } else {
-        msg.subject.clone()
+        msg.subject
     };
-
     let mut builder = Message::builder()
-        .from(from.clone())
-        .subject(subject);
+        .from(from)
+        .subject(subject)
+        .date_now()
+        .message_id(Some(bracketed(&msg.message_id)))
+        .header(RoundChatConversationId(msg.conversation_id));
 
-    for addr in &msg.to {
-        let mbox: Mailbox = addr.parse().context("invalid To address")?;
-        builder = builder.to(mbox);
+    for address in &msg.to {
+        let mailbox: Mailbox = address.parse().context("invalid To address")?;
+        builder = builder.to(mailbox);
+    }
+    if let Some(in_reply_to) = msg.in_reply_to {
+        builder = builder.in_reply_to(bracketed(&in_reply_to));
+    }
+    if !msg.references.is_empty() {
+        let references = msg
+            .references
+            .iter()
+            .map(|id| bracketed(id))
+            .collect::<Vec<String>>()
+            .join(" ");
+        builder = builder.references(references);
     }
 
-    let email_msg = builder
+    let email_message = builder
         .singlepart(
             SinglePart::builder()
                 .header(ContentType::TEXT_PLAIN)
-                .body(msg.body.clone()),
+                .body(msg.body),
         )
-        .with_context(|| format!("failed to build email (to={:?})", msg.to))?;
+        .context("failed to build outgoing email")?;
+    let raw = email_message.formatted();
+    let credentials = Credentials::new(email.to_string(), password.to_string());
 
-    let creds = Credentials::new(email.to_string(), password.to_string());
-
-    let transport = if config.port == 465 {
-        // Port 465 = SMTPS (implicit TLS).
-        let tls_params = TlsParameters::builder(config.host.clone())
-            .dangerous_accept_invalid_certs(true)
-            .dangerous_accept_invalid_hostnames(true)
-            .build()
-            .context("SMTP TLS parameters failed")?;
+    let transport = if config.tls {
+        let mut parameters = TlsParameters::builder(config.host.clone());
+        if config.tls_insecure {
+            parameters = parameters
+                .dangerous_accept_invalid_certs(true)
+                .dangerous_accept_invalid_hostnames(true);
+        }
+        let parameters = parameters.build().context("SMTP TLS parameters failed")?;
+        let mode = if config.port == 465 {
+            Tls::Wrapper(parameters)
+        } else {
+            Tls::Required(parameters)
+        };
         AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
             .port(config.port)
-            .tls(Tls::Wrapper(tls_params))
-            .credentials(creds)
-            .build()
-    } else if config.tls {
-        // Port 587 (or other) = STARTTLS.
-        AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host)
-            .context("SMTP relay setup failed")?
-            .port(config.port)
-            .credentials(creds)
+            .tls(mode)
+            .credentials(credentials)
             .build()
     } else {
-        // No encryption.
         AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
             .port(config.port)
-            .credentials(creds)
+            .credentials(credentials)
             .build()
     };
 
     transport
-        .send(email_msg)
+        .send(email_message)
         .await
         .context("SMTP send failed")?;
-
-    Ok(())
+    Ok(raw)
 }

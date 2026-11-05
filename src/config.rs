@@ -10,6 +10,8 @@ pub struct ImapConfig {
     pub port: u16,
     pub tls: bool,
     pub tls_insecure: bool,
+    /// Optional folder where a copy of outgoing mail is appended.
+    pub sent_folder: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +28,7 @@ pub struct SmtpConfig {
     pub host: String,
     pub port: u16,
     pub tls: bool,
+    pub tls_insecure: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -45,7 +48,7 @@ pub struct AppConfig {
     pub smtp: SmtpConfig,
     pub carddav: Option<CardDavConfig>,
     pub webdav: Option<WebDavConfig>,
-    /// Directory for persistent data (session, cache). Default: /data/roundchat
+    /// Directory for persistent per-account message caches. Default: /data/roundchat
     pub data_dir: String,
     /// IP address the HTTP server binds to (env: ROUNDCHAT_HOST, default: 127.0.0.1).
     pub host: String,
@@ -103,6 +106,7 @@ impl AppConfig {
             port: env_u16("IMAP_PORT", 993),
             tls: env_bool("IMAP_TLS", true),
             tls_insecure: env_bool("IMAP_TLS_INSECURE", false),
+            sent_folder: env("IMAP_SENT_FOLDER"),
         });
 
         let pop3 = if imap.is_none() {
@@ -121,6 +125,7 @@ impl AppConfig {
             host: env_or("SMTP_HOST", "localhost"),
             port: env_u16("SMTP_PORT", 465),
             tls: env_bool("SMTP_TLS", true),
+            tls_insecure: env_bool("SMTP_TLS_INSECURE", false),
         };
 
         let carddav = env("CARDDAV_URL").map(|url| CardDavConfig { url });

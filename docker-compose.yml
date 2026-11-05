@@ -8,6 +8,8 @@ services:
       ROUNDCHAT_PORT: "3000"
     env_file:
       - .env
+    volumes:
+      - roundchat-data:/data/roundchat
     restart: unless-stopped
     networks:
       - mailserver_shared
@@ -15,3 +17,6 @@ services:
 networks:
   mailserver_shared:
     external: true
+
+volumes:
+  roundchat-data:

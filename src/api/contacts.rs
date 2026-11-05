@@ -2,20 +2,18 @@
 
 use axum::{
     extract::State,
-    http::StatusCode,
-    response::IntoResponse,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
-use crate::state::AppState;
+
+use crate::api::auth::authenticated_session;
 use crate::dav::carddav;
+use crate::state::AppState;
 
 /// GET /api/contacts
-pub async fn list(State(state): State<AppState>) -> impl IntoResponse {
-    let session = {
-        let inner = state.inner.read().await;
-        inner.session.clone()
-    };
-    let Some(session) = session else {
+pub async fn list(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let Some(session) = authenticated_session(&state, &headers).await else {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({ "error": "not logged in" })),
@@ -23,21 +21,21 @@ pub async fn list(State(state): State<AppState>) -> impl IntoResponse {
             .into_response();
     };
 
-    let Some(carddav_cfg) = &state.config.carddav.clone() else {
+    let Some(carddav_config) = &state.config.carddav else {
         return Json(serde_json::json!([])).into_response();
     };
 
     match carddav::fetch_all_contacts(
-        &carddav_cfg.url,
+        &carddav_config.url,
         &session.email,
         &session.password,
     )
     .await
     {
         Ok(contacts) => Json(contacts).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": error.to_string() })),
         )
             .into_response(),
     }
